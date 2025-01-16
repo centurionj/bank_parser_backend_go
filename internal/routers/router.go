@@ -1,6 +1,7 @@
 package routers
 
 import (
+	"bank_parser_backend_go/internal/config"
 	controllers "bank_parser_backend_go/internal/controller"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -8,9 +9,9 @@ import (
 
 // Настройка роутов
 
-func SetupRoutes(r *gin.Engine, db *gorm.DB) {
-	accountController := controllers.NewAccountController(db)
+func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) {
+	accountController := controllers.NewAccountController(db, cfg)
 
-	// Обработчик на получение данных о аккаунте
-	r.POST("api/v1/auth/", accountController.GetAccount)
+	r.POST("api/v1/account/info/", accountController.GetAccountHandler)
+	r.POST("api/v1/account/auth/", accountController.AuthAccount)
 }

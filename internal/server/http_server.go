@@ -22,7 +22,7 @@ func NewHTTPServer(cfg *config.Config, db *gorm.DB) *HTTPServer {
 		db:     db,
 	}
 
-	routers.SetupRoutes(r, db)
+	routers.SetupRoutes(r, db, cfg)
 
 	return server
 }
