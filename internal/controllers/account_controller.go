@@ -369,6 +369,32 @@ func injectJSProperties(ctx context.Context, accountID int64) error {
 	return nil
 }
 
+func (ac *AccountController) getUserAgent(ctx context.Context) (string, error) {
+	var userAgent string
+	err := chromedp.Run(ctx, chromedp.Evaluate(`navigator.userAgent`, &userAgent))
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve User-Agent: %w", err)
+	}
+	return userAgent, nil
+}
+
+func (ac *AccountController) getSessionCookies(ctx context.Context) (*string, error) {
+	var cookies string
+
+	// Выполнение JS для извлечения cookies
+	err := chromedp.Run(ctx, chromedp.Evaluate(`document.cookie`, &cookies))
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve cookies using JS: %w", err)
+	}
+
+	return pointerToString(cookies), nil
+}
+
+// Вспомогательная функция для указателя на строку
+func pointerToString(s string) *string {
+	return &s
+}
+
 func (ac *AccountController) AuthAccount(c *gin.Context) {
 	account, err := ac.GetAccount(c)
 	if err != nil {
@@ -498,9 +524,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context) {
 		time.Sleep(200 * time.Millisecond) // Небольшая задержка между символами
 	}
 
-	// Получение User-Agent
-	var userAgent string
-	err = chromedp.Run(ctx, chromedp.Evaluate(`navigator.userAgent`, &userAgent))
+	userAgent, err := ac.getUserAgent(ctx)
 	if err != nil {
 		log.Printf("Error retrieving User-Agent: %v", err)
 		account.IsErrored = true
@@ -509,10 +533,20 @@ func (ac *AccountController) AuthAccount(c *gin.Context) {
 		return
 	}
 
+	// Получение сессии
+	sessionCookies, err := ac.getSessionCookies(ctx)
+	if err != nil {
+		log.Printf("Error retrieving session cookies: %v", err)
+		account.IsErrored = true
+		ac.DB.Save(&account)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving session cookies"})
+		return
+	}
+
 	// Обновляем информацию в базе данных
 	account.IsAuthenticated = true
-	account.SessionCookies = nil   // Сохраняем cookies сессии, если требуется
-	account.UserAgent = &userAgent // Сохраняем User-Agent
+	account.SessionCookies = sessionCookies
+	account.UserAgent = &userAgent
 	ac.DB.Save(&account)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})
