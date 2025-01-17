@@ -2,7 +2,7 @@ package routers
 
 import (
 	"bank_parser_backend_go/internal/config"
-	controllers "bank_parser_backend_go/internal/controllers"
+	"bank_parser_backend_go/internal/controllers"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
