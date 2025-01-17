@@ -3,6 +3,7 @@ package controllers
 import (
 	"bank_parser_backend_go/internal/config"
 	"bank_parser_backend_go/internal/models"
+	schem "bank_parser_backend_go/internal/schemas"
 	"context"
 	"errors"
 	"fmt"
@@ -19,27 +20,6 @@ import (
 	"time"
 )
 
-// Структура для профиля агента
-
-type DeviceProfile struct {
-	UserAgent string
-	Platform  string
-	Screen    struct {
-		Width  int
-		Height int
-	}
-}
-
-// Структура для получения account_id из json
-
-type AccountIDRequest struct {
-	AccountID int `json:"account_id"`
-}
-
-type AccountAccountProfileDirRequest struct {
-	AccountIDs []int `json:"account_ids"`
-}
-
 type AccountController struct {
 	DB  *gorm.DB
 	Cfg *config.Config
@@ -54,7 +34,7 @@ func NewAccountController(db *gorm.DB, cfg *config.Config) *AccountController {
 // Метод получения Account по его id
 
 func (ac *AccountController) GetAccount(c *gin.Context) (*models.Account, error) {
-	var accountIDRequest AccountIDRequest
+	var accountIDRequest schem.AccountIDRequest
 	if err := c.ShouldBindJSON(&accountIDRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account_id_request format"})
 		return nil, err
@@ -73,14 +53,8 @@ func (ac *AccountController) GetAccount(c *gin.Context) (*models.Account, error)
 	return &account, nil
 }
 
-func (ac *AccountController) GetAccountHandler(c *gin.Context) {
-	account, _ := ac.GetAccount(c)
-
-	c.JSON(http.StatusOK, &account)
-}
-
 func (ac *AccountController) DelAccountProfileDir(c *gin.Context) error {
-	var request AccountAccountProfileDirRequest
+	var request schem.AccountAccountProfileDirRequest
 
 	// Parse the JSON request
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -112,9 +86,9 @@ func (ac *AccountController) DelAccountProfileDirHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, &result)
 }
 
-func getRandomDeviceProfile() DeviceProfile {
+func getRandomDeviceProfile() schem.DeviceProfile {
 	// Набор профилей для различных устройств
-	devices := []DeviceProfile{
+	devices := []schem.DeviceProfile{
 		{
 			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
 			Platform:  "Win32",
@@ -160,7 +134,7 @@ func clearSessionData(accountID int64) error {
 	return nil
 }
 
-func injectNavigatorProperties(ctx context.Context, deviceProfile DeviceProfile, cpu string) error {
+func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DeviceProfile, cpu string) error {
 	jsScripts := []string{
 		// Установка User-Agent
 		fmt.Sprintf(`Object.defineProperty(navigator, 'userAgent', { get: () => '%s' });`, deviceProfile.UserAgent),
@@ -253,7 +227,7 @@ func injectWebRTCProperties(ctx context.Context, localIP string, publicIP string
 	return nil
 }
 
-func injectScreenAndAudioProperties(ctx context.Context, deviceProfile DeviceProfile, randomFrequency int, randomStart string, randomStop string) error {
+func injectScreenAndAudioProperties(ctx context.Context, deviceProfile schem.DeviceProfile, randomFrequency int, randomStart string, randomStop string) error {
 	jsScripts := []string{
 		// Установка свойств экрана
 		fmt.Sprintf(`
