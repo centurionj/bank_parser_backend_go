@@ -30,5 +30,8 @@ Godeps/
 # Отладочные файлы
 *.prof
 
+# Google profiles
+chrome-profile/
+
 # Общие файлы конфигурации
 .env

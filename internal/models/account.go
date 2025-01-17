@@ -18,7 +18,34 @@ type Account struct {
 	HasTemporaryCode bool      `gorm:"default:false"`
 	IsErrored        bool      `gorm:"default:false"`
 	SessionCookies   *string   `gorm:"type:text;default:null"`
-	UserAgent        *string   `gorm:"type:text;default:null"`
+
+	// Настройки браузера
+	UserAgent           *string `gorm:"type:text;default:null"`
+	NavigatorPlatform   *string `gorm:"type:varchar(50);default:null"`
+	HardwareConcurrency *int    `gorm:"default:null"`
+	DeviceMemory        *int    `gorm:"default:null"`
+
+	// Характеристики устройства
+	ScreenWidth  *int    `gorm:"default:null"`
+	ScreenHeight *int    `gorm:"default:null"`
+	GPU          *string `gorm:"type:varchar(100);default:null"`
+	CPU          *string `gorm:"type:varchar(100);default:null"`
+
+	// Canvas и WebGL
+	CanvasFingerprint *string `gorm:"type:text;default:null"`
+	WebGLVendor       *string `gorm:"type:varchar(100);default:null"`
+	WebGLRenderer     *string `gorm:"type:varchar(100);default:null"`
+
+	// WebRTC
+	LocalIP  *string `gorm:"type:varchar(45);default:null"`
+	PublicIP *string `gorm:"type:varchar(45);default:null"`
+
+	// Аудио fingerprint
+	AudioFingerprint *string `gorm:"type:text;default:null"`
+
+	// Заряд батареи
+	BatteryLevel *float64 `gorm:"default:null"`
+	IsCharging   *bool    `gorm:"default:null"`
 }
 
 // Метод для ренейма таблицы под стиль Django
