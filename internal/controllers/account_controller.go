@@ -341,8 +341,8 @@ func injectJSProperties(ctx context.Context, accountID int64) error {
 	gpu := gpus[rand.Intn(len(gpus))]
 	cpu := cpus[rand.Intn(len(cpus))]
 
-	//localIP := "http://localahost:8080"
-	//publicIP := "http://publicahost:8080"
+	//localIP := "http://localhost:8080"
+	//publicIP := "http://publichost:8080"
 
 	// Удаление предыдущей сессии
 	if err := clearSessionData(accountID); err != nil {
