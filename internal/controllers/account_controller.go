@@ -129,7 +129,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		return errors.New("Missing AlphaLoginUrl in config")
 	}
 
-	conf, err := utils.SetupChromeDriver(c, *account)
+	conf, err := utils.SetupChromeDriver(c, *account, cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to setup ChromeDriver"})
 		return errors.New("Failed to setup ChromeDriver")
