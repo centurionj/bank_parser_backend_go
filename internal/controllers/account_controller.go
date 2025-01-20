@@ -163,7 +163,7 @@ func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DevicePr
 func injectCanvasAndWebGL(ctx context.Context, gpu string, cpu string) error {
 	jsScripts := []string{
 		// Подделка Canvas
-		`HTMLCanvasElement.prototype.toDataURL = (() => 'data:image/png;base64,fakedata');`,
+		fmt.Sprintf(`HTMLCanvasElement.prototype.toDataURL = (() => 'data:image/png;base64,data-%s');`, cpu+gpu),
 
 		// Подделка WebGL Renderer
 		fmt.Sprintf(`
@@ -228,35 +228,99 @@ func injectWebRTCProperties(ctx context.Context, localIP string, publicIP string
 }
 
 func injectScreenAndAudioProperties(ctx context.Context, deviceProfile schem.DeviceProfile, randomFrequency int, randomStart string, randomStop string) error {
-	jsScripts := []string{
-		// Установка свойств экрана
-		fmt.Sprintf(`
-		window.customScreen = { 
-			width: %d, 
-			height: %d 
-		};
-		`, deviceProfile.Screen.Width, deviceProfile.Screen.Height),
+	bufferSizes := []int{256, 512, 1024, 2048, 4096, 8192, 16384}
+	bufferSize := bufferSizes[rand.Intn(len(bufferSizes))]
+	inputChannels := rand.Intn(2) + 1
+	outputChannels := rand.Intn(2) + 1
 
-		// Создание простого аудио fingerprint
+	jsScripts := []string{
+		// Setting screen properties
 		fmt.Sprintf(`
-			const context = new (window.AudioContext || window.webkitAudioContext)();
-			const oscillator = context.createOscillator();
-			oscillator.type = 'triangle';
-			oscillator.frequency.value = %d;
-			oscillator.connect(context.destination);
-			oscillator.start(%s);
-			oscillator.stop(%s);
-		`, randomFrequency, randomStart, randomStop),
+        window.customScreen = { 
+            width: %d, 
+            height: %d 
+        };
+        `, deviceProfile.Screen.Width, deviceProfile.Screen.Height),
+
+		// Generating audio fingerprint
+		fmt.Sprintf(`
+			window.audioFingerprint = null;
+			
+			const getAudioFingerprint = async () => {
+				const ctx = new (window.AudioContext || window.webkitAudioContext)();
+				const oscillator = ctx.createOscillator();
+				const analyser = ctx.createAnalyser();
+				const gain = ctx.createGain();
+				const scriptProcessor = ctx.createScriptProcessor(%d, %d, %d);
+			
+				oscillator.type = 'triangle';
+				oscillator.frequency.value = %d;
+				gain.gain.value = 0;
+			
+				oscillator.connect(analyser);
+				analyser.connect(scriptProcessor);
+				scriptProcessor.connect(ctx.destination);
+			
+				oscillator.start(%s);
+				oscillator.stop(%s);
+			
+				return new Promise((resolve, reject) => {
+					scriptProcessor.onaudioprocess = () => {
+						const freqData = new Uint8Array(analyser.frequencyBinCount);
+						analyser.getByteFrequencyData(freqData);
+						oscillator.stop();
+						scriptProcessor.disconnect();
+			
+						resolve(freqData.join(","));
+					};
+			
+					oscillator.onerror = (error) => {
+						reject("Audio context error: " + error);
+					};
+				});
+			};
+			
+			getAudioFingerprint().then(fingerprint => {
+				window.audioFingerprint = fingerprint;
+			}).catch(error => {
+				console.error("Error generating audio fingerprint:", error);
+			});
+			`, bufferSize, inputChannels, outputChannels, randomFrequency, randomStart, randomStop),
 	}
 
-	// Выполнение JS-скриптов для экрана и аудио
+	// Executing JavaScript code to set screen properties and generate audio fingerprint
 	for _, script := range jsScripts {
-		log.Printf("Injecting screen/audio script: %s", script)
+		log.Printf("Injecting script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
-			log.Printf("Error injecting screen/audio script: %v", err)
+			log.Printf("Error injecting script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)
 		}
 	}
+
+	//var fingerprint string
+	//var retries int
+	//const maxRetries = 30                 // Увеличил количество попыток
+	//const retryInterval = 1 * time.Second // Интервал между попытками
+	//
+	//for retries = 0; retries < maxRetries; retries++ {
+	//	err := chromedp.Run(ctx,
+	//		chromedp.Evaluate(`window.audioFingerprint || "Fingerprint not available yet"`, &fingerprint),
+	//	)
+	//	if err != nil {
+	//		return fmt.Errorf("error retrieving fingerprint: %w", err)
+	//	}
+	//
+	//	if fingerprint != "Fingerprint not available yet" && fingerprint != "" {
+	//		log.Printf("Fingerprint: %s", fingerprint)
+	//		return nil
+	//	}
+	//
+	//	time.Sleep(retryInterval) // Задержка между попытками
+	//}
+	//
+	//log.Printf("Fingerprint not available after %d retries", retries)
+	//println("CONTEXT", ctx)
+	//return fmt.Errorf("Fingerprint not available yet")
 
 	return nil
 }
@@ -307,7 +371,7 @@ func injectJSProperties(ctx context.Context, accountID int64) error {
 	// Рандомизация параметров
 	randomFrequency := 8000 + rand.Intn(4000)
 	randomStart := fmt.Sprintf("%.2f", rand.Float64()/10)
-	randomStop := fmt.Sprintf("%.2f", 0.01+rand.Float64()/10)
+	randomStop := fmt.Sprintf("%.1f", 0.1+rand.Float64()/10)
 
 	// Рандомизация оборудования
 	gpus := []string{"NVIDIA GeForce GTX 1660", "AMD Radeon RX 580", "Intel Iris Xe Graphics"}
@@ -361,12 +425,227 @@ func (ac *AccountController) getSessionCookies(ctx context.Context) (*string, er
 		return nil, fmt.Errorf("failed to retrieve cookies using JS: %w", err)
 	}
 
-	return pointerToString(cookies), nil
+	return &cookies, nil
 }
 
-// Вспомогательная функция для указателя на строку
-func pointerToString(s string) *string {
-	return &s
+func injectDeviceProperties(ctx context.Context, account *models.Account, ac *AccountController) error {
+	// Извлекаем данные User-Agent
+	userAgent, err := ac.getUserAgent(ctx) // Вызов на экземпляре ac
+	if err != nil {
+		return fmt.Errorf("failed to get User-Agent: %w", err)
+	}
+
+	// Извлекаем Session Cookies
+	sessionCookies, err := ac.getSessionCookies(ctx) // То же самое здесь
+	if err != nil {
+		return fmt.Errorf("failed to get session cookies: %w", err)
+	}
+
+	// Извлекаем данные Navigator
+	var platform string
+	err = chromedp.Run(ctx, chromedp.Evaluate(`navigator.platform`, &platform))
+	if err != nil {
+		return fmt.Errorf("failed to get navigator platform: %w", err)
+	}
+
+	var hardwareConcurrency int
+	err = chromedp.Run(ctx, chromedp.Evaluate(`navigator.hardwareConcurrency`, &hardwareConcurrency))
+	if err != nil {
+		return fmt.Errorf("failed to get hardwareConcurrency: %w", err)
+	}
+
+	var deviceMemory int
+	err = chromedp.Run(ctx, chromedp.Evaluate(`navigator.deviceMemory`, &deviceMemory))
+	if err != nil {
+		return fmt.Errorf("failed to get deviceMemory: %w", err)
+	}
+
+	// Извлечение данных экрана
+	var screenWidth, screenHeight int
+	err = chromedp.Run(ctx, chromedp.Evaluate(`
+		(() => {
+			if (window.customScreen) {
+				return { width: window.customScreen.width, height: window.customScreen.height };
+			} else {
+				return { width: window.innerWidth, height: window.innerHeight };
+			}
+		})()
+	`, &struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}{
+		screenWidth,
+		screenHeight,
+	}))
+	if err != nil {
+		return fmt.Errorf("failed to get custom or default screen size: %w", err)
+	}
+
+	// Извлекаем информацию о Canvas
+	var canvasFingerprint string
+	err = chromedp.Run(ctx, chromedp.Evaluate(`
+		var canvas = document.createElement('canvas');
+		var context = canvas.getContext('2d');
+		context.textBaseline = "top";
+		context.font = "14px 'Arial'";
+		context.fillText("sample text", 2, 2);
+		canvas.toDataURL();
+	`, &canvasFingerprint))
+	if err != nil {
+		return fmt.Errorf("failed to get Canvas fingerprint: %w", err)
+	}
+
+	// Извлекаем информацию о WebGL
+	var webglVendor, webglRenderer string
+	err = chromedp.Run(ctx, chromedp.Evaluate(`
+		const gl = document.createElement('canvas').getContext('webgl');
+		const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+		const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+		const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+		[vendor, renderer]
+	`, &[]interface{}{&webglVendor, &webglRenderer}))
+	if err != nil {
+		return fmt.Errorf("failed to get WebGL info: %w", err)
+	}
+
+	// Извлекаем данные WebRTC
+	var localIPRaw interface{}
+	err = chromedp.Run(ctx, chromedp.Evaluate(`
+    new Promise((resolve) => {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.onicecandidate = (event) => {
+            if (event && event.candidate) {
+                const match = event.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+                if (match) {
+                    resolve(match[1]); // Возвращаем только IP-адрес
+                }
+            }
+        };
+        pc.createDataChannel("");
+        pc.createOffer().then(offer => pc.setLocalDescription(offer))
+        .catch(() => resolve(null)); // Возвращаем null в случае ошибки
+    }).catch(() => resolve(null)); // Возвращаем null, если возникает исключение
+`, &localIPRaw))
+	if err != nil {
+		return fmt.Errorf("failed to get WebRTC local IP: %w", err)
+	}
+
+	localIP, ok := localIPRaw.(string)
+	if !ok || localIP == "" {
+		log.Println("WebRTC returned an empty or invalid IP address.")
+		localIP = "" // Заглушка
+	}
+
+	// Получение информации об аудио и батарее
+	//var audioFingerprint string
+	//err = chromedp.Run(ctx, chromedp.Evaluate(`
+	//	(() => {
+	//		if (window.customAudioFingerprint) {
+	//			return window.customAudioFingerprint;
+	//		}
+	//		const ctx = new (window.AudioContext || window.webkitAudioContext)();
+	//		const oscillator = ctx.createOscillator();
+	//		const analyser = ctx.createAnalyser();
+	//		const gain = ctx.createGain();
+	//		const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
+	//
+	//		oscillator.type = "triangle";
+	//		oscillator.frequency.value = 10000;
+	//		gain.gain.value = 0;
+	//
+	//		oscillator.connect(analyser);
+	//		analyser.connect(scriptProcessor);
+	//		scriptProcessor.connect(ctx.destination);
+	//		oscillator.start(0);
+	//
+	//		return new Promise(resolve => {
+	//			scriptProcessor.onaudioprocess = () => {
+	//				const freqData = new Uint8Array(analyser.frequencyBinCount);
+	//				analyser.getByteFrequencyData(freqData);
+	//				oscillator.stop();
+	//				scriptProcessor.disconnect();
+	//				resolve(freqData.join(""));
+	//			};
+	//		});
+	//	})();
+	//`, &audioFingerprint))
+	//if err != nil {
+	//	return fmt.Errorf("failed to get audio fingerprint: %w", err)
+	//}
+
+	var audioFingerprint interface{}
+	err = chromedp.Run(ctx, chromedp.Evaluate(`
+		(() => {
+			return new Promise(async (resolve) => {
+				if (window.customAudioFingerprint) {
+					console.log('Returning customAudioFingerprint:', window.customAudioFingerprint);
+					resolve(window.customAudioFingerprint);
+					return;
+				}
+	
+				try {
+					const ctx = new (window.AudioContext || window.webkitAudioContext)();
+					const oscillator = ctx.createOscillator();
+					const analyser = ctx.createAnalyser();
+					const gain = ctx.createGain();
+					const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
+	
+					oscillator.type = "triangle";
+					oscillator.frequency.value = 10000;
+					gain.gain.value = 0;
+	
+					oscillator.connect(analyser);
+					analyser.connect(scriptProcessor);
+					scriptProcessor.connect(ctx.destination);
+					oscillator.start(0);
+	
+					scriptProcessor.onaudioprocess = () => {
+						const freqData = new Uint8Array(analyser.frequencyBinCount);
+						analyser.getByteFrequencyData(freqData);
+						oscillator.stop();
+						scriptProcessor.disconnect();
+						
+						// Преобразуем массив в строку через JSON.stringify
+						const freqDataStr = JSON.stringify(freqData);
+						resolve(freqDataStr);
+					};
+				} catch (e) {
+					resolve(""); // Возвращаем пустую строку при ошибке
+				}
+			});
+		})();
+	`, &audioFingerprint))
+
+	log.Printf("Received audio fingerprint: %s", audioFingerprint)
+	//if err != nil {
+	//	return fmt.Errorf("failed to get audio fingerprint: %w", err)
+	//}
+
+	//var batteryLevel float64
+	//err = chromedp.Run(ctx, chromedp.Evaluate(`navigator.getBattery().then(battery => battery.level)`, &batteryLevel))
+	//if err != nil {
+	//	return fmt.Errorf("failed to get battery level: %w", err)
+	//}
+
+	// Заполнение структуры Account
+	account.UserAgent = &userAgent
+	account.SessionCookies = sessionCookies
+	account.NavigatorPlatform = &platform
+	account.HardwareConcurrency = &hardwareConcurrency
+	account.DeviceMemory = &deviceMemory
+	account.ScreenWidth = &screenWidth
+	account.ScreenHeight = &screenHeight
+	account.CanvasFingerprint = &canvasFingerprint
+	account.WebglVendor = &webglVendor
+	account.WebglRenderer = &webglRenderer
+	account.LocalIP = &localIP
+	//account.AudioFingerprint = &audioFingerprint
+	//account.BatteryLevel = &batteryLevel
+	account.AudioFingerprint = nil
+	account.BatteryLevel = nil
+
+	// Обновляем запись в базе данных
+	return nil
 }
 
 func (ac *AccountController) AuthAccount(c *gin.Context) {
@@ -498,29 +777,16 @@ func (ac *AccountController) AuthAccount(c *gin.Context) {
 		time.Sleep(200 * time.Millisecond) // Небольшая задержка между символами
 	}
 
-	userAgent, err := ac.getUserAgent(ctx)
-	if err != nil {
-		log.Printf("Error retrieving User-Agent: %v", err)
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving User-Agent"})
-		return
-	}
+	// Сбор данных устройства
+	//if err := injectDeviceProperties(ctx, account, ac); err != nil {
+	//	log.Printf("Error collecting device properties: %v", err)
+	//	account.IsErrored = true
+	//	ac.DB.Save(account)
+	//	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to collect device properties"})
+	//	return
+	//}
 
-	// Получение сессии
-	sessionCookies, err := ac.getSessionCookies(ctx)
-	if err != nil {
-		log.Printf("Error retrieving session cookies: %v", err)
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving session cookies"})
-		return
-	}
-
-	// Обновляем информацию в базе данных
 	account.IsAuthenticated = true
-	account.SessionCookies = sessionCookies
-	account.UserAgent = &userAgent
 	ac.DB.Save(&account)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})

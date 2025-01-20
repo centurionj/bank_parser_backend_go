@@ -7,6 +7,7 @@ import (
 // Модель аккаунта для входа в ЛК
 
 type AccountSetup struct { // В дальнейшем отрефакторить 2 схемы
+	// Настройка сессии
 	SessionCookies *string `gorm:"type:text;default:null"`
 
 	// Настройки браузера
@@ -49,7 +50,9 @@ type Account struct {
 	IsAuthenticated  bool      `gorm:"default:false"`
 	HasTemporaryCode bool      `gorm:"default:false"`
 	IsErrored        bool      `gorm:"default:false"`
-	SessionCookies   *string   `gorm:"type:text;default:null"`
+
+	// Настройка сессии
+	SessionCookies *string `gorm:"type:text;default:null"`
 
 	// Настройки браузера
 	UserAgent           *string `gorm:"type:text;default:null"`
