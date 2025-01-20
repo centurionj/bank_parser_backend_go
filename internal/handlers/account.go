@@ -6,9 +6,22 @@ import (
 	"net/http"
 )
 
-func GetAccountHandler(ac *con.AccountController) gin.HandlerFunc {
+func DelAccountProfileDirHandler(ac *con.AccountController) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		account, _ := ac.GetAccount(c)
-		c.JSON(http.StatusOK, &account)
+		err := ac.DelAccountProfileDir(c)
+		if err != nil {
+			return
+		}
+		c.JSON(http.StatusOK, nil)
+	}
+}
+
+func AuthAccountHandler(ac *con.AccountController) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		err := ac.AuthAccount(c)
+		if err != nil {
+			return
+		}
+		c.JSON(http.StatusOK, nil)
 	}
 }

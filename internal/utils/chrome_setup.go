@@ -1,21 +1,29 @@
 package utils
 
 import (
+	"bank_parser_backend_go/internal/config"
+	"bank_parser_backend_go/internal/models"
 	schem "bank_parser_backend_go/internal/schemas"
 	"context"
+	"encoding/json"
 	"fmt"
+	cu "github.com/Davincible/chromedp-undetected"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"github.com/gin-gonic/gin"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // Набор профилей для различных устройств
 
 func getRandomDeviceProfile() schem.DeviceProfile {
-
 	devices := []schem.DeviceProfile{
 		{
 			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
@@ -53,6 +61,62 @@ func getRandomDeviceProfile() schem.DeviceProfile {
 	return devices[rand.Intn(len(devices))]
 }
 
+func createAccountProperties(account models.Account) schem.AccountProperties {
+	var props schem.AccountProperties
+
+	if account.IsAuthenticated != true {
+		props.DeviceProfile = getRandomDeviceProfile()
+
+		props.RandomFrequency = 8000 + rand.Intn(4000)
+		props.RandomStart = fmt.Sprintf("%.2f", rand.Float64()/10)
+		props.RandomStop = fmt.Sprintf("%.1f", 0.1+rand.Float64()/10)
+
+		bufferSizes := []int{256, 512, 1024, 2048, 4096, 8192, 16384}
+		props.BufferSize = bufferSizes[rand.Intn(len(bufferSizes))]
+		props.InputChannels = rand.Intn(2) + 1
+		props.OutputChannels = rand.Intn(2) + 1
+
+		gpus := []string{"NVIDIA GeForce GTX 1660", "AMD Radeon RX 580", "Intel Iris Xe Graphics"}
+		cpus := []string{"Intel Core i7-10700K", "AMD Ryzen 5 3600", "Intel Core i5-10400"}
+		props.GPU = gpus[rand.Intn(len(gpus))]
+		props.CPU = cpus[rand.Intn(len(cpus))]
+		props.HardwareConcurrency = 2 + rand.Intn(8)
+		props.DeviceMemory = 4 + rand.Intn(12)
+
+		charge := []bool{true, false}
+		props.IsCharging = charge[rand.Intn(len(charge))]
+		props.BatteryVolume = 0.5 + rand.Float64()/2
+		//props.LocalIP = ""
+		//props.PublicIP = "" // GetProxy()
+	} else {
+		props.DeviceProfile.UserAgent = *account.UserAgent
+		props.DeviceProfile.Platform = *account.Platform
+		props.DeviceProfile.Screen.Width = *account.ScreenWidth
+		props.DeviceProfile.Screen.Height = *account.ScreenHeight
+
+		props.RandomFrequency = *account.Frequency
+		props.RandomStart = *account.Start
+		props.RandomStop = *account.Stop
+
+		props.BufferSize = *account.BufferSize
+		props.InputChannels = *account.InputChannels
+		props.OutputChannels = *account.OutputChannels
+
+		props.GPU = *account.GPU
+		props.CPU = *account.CPU
+		props.HardwareConcurrency = *account.HardwareConcurrency
+		props.DeviceMemory = *account.DeviceMemory
+
+		props.IsCharging = *account.IsCharging
+		props.BatteryVolume = *account.BatteryVolume
+
+		props.LocalIP = *account.LocalIP
+		props.PublicIP = *account.PublicIP
+	}
+
+	return props
+}
+
 // Удаление директории сессии
 func clearSessionData(accountID int64) error {
 	sessionPath := filepath.Join("./chrome-profile", strconv.Itoa(int(accountID)))
@@ -62,7 +126,7 @@ func clearSessionData(accountID int64) error {
 	return nil
 }
 
-func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DeviceProfile, cpu string) error {
+func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DeviceProfile, cpu string, hardwareConcurrency int, deviceMemory int) error {
 	jsScripts := []string{
 		// Установка User-Agent
 		fmt.Sprintf(`Object.defineProperty(navigator, 'userAgent', { get: () => '%s' });`, deviceProfile.UserAgent),
@@ -71,8 +135,8 @@ func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DevicePr
 		fmt.Sprintf(`Object.defineProperty(navigator, 'platform', { get: () => '%s' });`, deviceProfile.Platform),
 
 		// Изменение аппаратных параметров
-		fmt.Sprintf(`Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => %d });`, 2+rand.Intn(8)),
-		fmt.Sprintf(`Object.defineProperty(navigator, 'deviceMemory', { get: () => %d });`, 4+rand.Intn(12)),
+		fmt.Sprintf(`Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => %d });`, hardwareConcurrency),
+		fmt.Sprintf(`Object.defineProperty(navigator, 'deviceMemory', { get: () => %d });`, deviceMemory),
 		fmt.Sprintf(`Object.defineProperty(navigator, 'cpu', { get: () => '%s' });`, cpu),
 	}
 
@@ -91,7 +155,7 @@ func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DevicePr
 func injectCanvasAndWebGL(ctx context.Context, gpu string, cpu string) error {
 	jsScripts := []string{
 		// Подделка Canvas
-		`HTMLCanvasElement.prototype.toDataURL = (() => 'data:image/png;base64,fakedata');`,
+		fmt.Sprintf(`HTMLCanvasElement.prototype.toDataURL = (() => 'data:image/png;base64,data-%s');`, cpu+gpu),
 
 		// Подделка WebGL Renderer
 		fmt.Sprintf(`
@@ -155,33 +219,77 @@ func injectWebRTCProperties(ctx context.Context, localIP string, publicIP string
 	return nil
 }
 
-func injectScreenAndAudioProperties(ctx context.Context, deviceProfile schem.DeviceProfile, randomFrequency int, randomStart string, randomStop string) error {
-	jsScripts := []string{
-		// Установка свойств экрана
-		fmt.Sprintf(`
-		window.customScreen = { 
-			width: %d, 
-			height: %d 
-		};
-		`, deviceProfile.Screen.Width, deviceProfile.Screen.Height),
+func injectScreenAndAudioProperties(
+	ctx context.Context,
+	deviceProfile schem.DeviceProfile,
+	bufferSize int,
+	inputChannels int,
+	outputChannels int,
+	randomFrequency int,
+	randomStart string,
+	randomStop string,
+) error {
 
-		// Создание простого аудио fingerprint
+	jsScripts := []string{
+		// Setting screen properties
 		fmt.Sprintf(`
-			const context = new (window.AudioContext || window.webkitAudioContext)();
-			const oscillator = context.createOscillator();
-			oscillator.type = 'triangle';
-			oscillator.frequency.value = %d;
-			oscillator.connect(context.destination);
-			oscillator.start(%s);
-			oscillator.stop(%s);
-		`, randomFrequency, randomStart, randomStop),
+       window.customScreen = { 
+           width: %d, 
+           height: %d 
+       };
+       `, deviceProfile.Screen.Width, deviceProfile.Screen.Height),
+
+		// Generating audio fingerprint
+		fmt.Sprintf(`
+			window.audioFingerprint = null;
+			
+			const getAudioFingerprint = async () => {
+				const ctx = new (window.AudioContext || window.webkitAudioContext)();
+				const oscillator = ctx.createOscillator();
+				const analyser = ctx.createAnalyser();
+				const gain = ctx.createGain();
+				const scriptProcessor = ctx.createScriptProcessor(%d, %d, %d);
+			
+				oscillator.type = 'triangle';
+				oscillator.frequency.value = %d;
+				gain.gain.value = 0;
+			
+				oscillator.connect(analyser);
+				analyser.connect(scriptProcessor);
+				scriptProcessor.connect(ctx.destination);
+			
+				oscillator.start(%s);
+				oscillator.stop(%s);
+			
+				return new Promise((resolve, reject) => {
+					scriptProcessor.onaudioprocess = () => {
+						const freqData = new Uint8Array(analyser.frequencyBinCount);
+						analyser.getByteFrequencyData(freqData);
+						oscillator.stop();
+						scriptProcessor.disconnect();
+			
+						resolve(freqData.join(","));
+					};
+			
+					oscillator.onerror = (error) => {
+						reject("Audio context error: " + error);
+					};
+				});
+			};
+			
+			getAudioFingerprint().then(fingerprint => {
+				window.audioFingerprint = fingerprint;
+			}).catch(error => {
+				console.error("Error generating audio fingerprint:", error);
+			});
+			`, bufferSize, inputChannels, outputChannels, randomFrequency, randomStart, randomStop),
 	}
 
-	// Выполнение JS-скриптов для экрана и аудио
+	// Executing JavaScript code to set screen properties and generate audio fingerprint
 	for _, script := range jsScripts {
-		log.Printf("Injecting screen/audio script: %s", script)
+		log.Printf("Injecting script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
-			log.Printf("Error injecting screen/audio script: %v", err)
+			log.Printf("Error injecting script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)
 		}
 	}
@@ -189,7 +297,7 @@ func injectScreenAndAudioProperties(ctx context.Context, deviceProfile schem.Dev
 	return nil
 }
 
-func injectMediaAndBatteryProperties(ctx context.Context, accountID int64) error {
+func injectMediaAndBatteryProperties(ctx context.Context, accountID int64, isCharging bool, batteryVolume float64) error {
 	jsScripts := []string{
 		// Медиа устройства
 		fmt.Sprintf(`
@@ -207,13 +315,13 @@ func injectMediaAndBatteryProperties(ctx context.Context, accountID int64) error
 		fmt.Sprintf(`
 			Object.defineProperty(navigator, 'getBattery', {
 				get: () => () => Promise.resolve({
-					charging: true,
+					charging: %v,
 					chargingTime: 0,
 					dischargingTime: Infinity,
 					level: %.2f
 				})
 			});
-		`, 0.5+rand.Float64()/2),
+		`, isCharging, batteryVolume),
 	}
 
 	// Выполнение JS-скриптов для медиа и батареи
@@ -228,45 +336,160 @@ func injectMediaAndBatteryProperties(ctx context.Context, accountID int64) error
 	return nil
 }
 
-func injectJSProperties(ctx context.Context, accountID int64) error {
-	// Получаем случайный профиль устройства
-	deviceProfile := getRandomDeviceProfile()
+// Настройка хрома JS скриптами
 
-	// Рандомизация параметров
-	randomFrequency := 8000 + rand.Intn(4000)
-	randomStart := fmt.Sprintf("%.2f", rand.Float64()/10)
-	randomStop := fmt.Sprintf("%.2f", 0.01+rand.Float64()/10)
+func InjectJSProperties(c context.Context, account models.Account) (schem.AccountProperties, error) {
 
-	// Рандомизация оборудования
-	gpus := []string{"NVIDIA GeForce GTX 1660", "AMD Radeon RX 580", "Intel Iris Xe Graphics"}
-	cpus := []string{"Intel Core i7-10700K", "AMD Ryzen 5 3600", "Intel Core i5-10400"}
-	gpu := gpus[rand.Intn(len(gpus))]
-	cpu := cpus[rand.Intn(len(cpus))]
+	props := createAccountProperties(account)
 
-	//localIP := "http://localhost:8080"
-	//publicIP := "http://publichost:8080"
-
-	// Удаление предыдущей сессии
-	if err := clearSessionData(accountID); err != nil {
-		return fmt.Errorf("error clearing session data: %w", err)
+	if account.IsAuthenticated != true {
+		// Удаление сессии
+		if err := clearSessionData(int64(account.ID)); err != nil {
+			return schem.AccountProperties{}, fmt.Errorf("error clearing session data: %w", err)
+		}
 	}
 
 	// Выполняем инъекцию свойств по частям
-	if err := injectNavigatorProperties(ctx, deviceProfile, cpu); err != nil {
-		return err
+	if err := injectNavigatorProperties(c, props.DeviceProfile, props.CPU, props.HardwareConcurrency, props.DeviceMemory); err != nil {
+		return props, err
 	}
-	if err := injectCanvasAndWebGL(ctx, gpu, cpu); err != nil {
-		return err
+	if err := injectCanvasAndWebGL(c, props.GPU, props.CPU); err != nil {
+		return props, err
 	}
-	//if err := injectWebRTCProperties(ctx, localIP, publicIP); err != nil {
+	//if err := injectWebRTCProperties(c, props.localIP, props.publicIP); err != nil {
 	//	return err
 	//}
-	if err := injectScreenAndAudioProperties(ctx, deviceProfile, randomFrequency, randomStart, randomStop); err != nil {
-		return err
+	if err := injectScreenAndAudioProperties(
+		c,
+		props.DeviceProfile,
+		props.BufferSize,
+		props.InputChannels,
+		props.OutputChannels,
+		props.RandomFrequency,
+		props.RandomStart,
+		props.RandomStop,
+	); err != nil {
+		return props, err
 	}
-	if err := injectMediaAndBatteryProperties(ctx, accountID); err != nil {
-		return err
+	if err := injectMediaAndBatteryProperties(c, int64(account.ID), props.IsCharging, props.BatteryVolume); err != nil {
+		return props, err
+	}
+
+	return props, nil
+}
+
+// Установка куки
+
+func setCookies(c *gin.Context, account models.Account) error {
+
+	// Десериализация cookies из строки
+	var cookies []network.Cookie
+	err := json.Unmarshal([]byte(*account.SessionCookies), &cookies)
+	if err != nil {
+		return fmt.Errorf("failed to parse session cookies: %w", err)
+	}
+
+	// Установка cookies через chromedp
+	err = chromedp.Run(c, chromedp.ActionFunc(func(ctx context.Context) error {
+		for _, cookie := range cookies {
+			var expires *cdp.TimeSinceEpoch
+			if cookie.Expires > 0 {
+				expiresTime := time.Unix(int64(cookie.Expires), 0)
+				exp := cdp.TimeSinceEpoch(expiresTime)
+				expires = &exp
+			}
+
+			// Установка куки
+			err := network.SetCookie(cookie.Name, cookie.Value).
+				WithDomain(cookie.Domain).
+				WithPath(cookie.Path).
+				WithExpires(expires).
+				WithHTTPOnly(cookie.HTTPOnly).
+				WithSecure(cookie.Secure).
+				Do(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to set cookie %s: %w", cookie.Name, err)
+			}
+		}
+		return nil
+	}))
+
+	if err != nil {
+		return fmt.Errorf("failed to set cookies: %w", err)
 	}
 
 	return nil
+}
+
+// Получение куки
+
+func GetSessionCookies(c *gin.Context) (*string, error) {
+	// Получаем все куки из запроса
+	cookieHeaders := c.Request.Cookies()
+	if len(cookieHeaders) == 0 {
+		return nil, fmt.Errorf("no cookies found in the request")
+	}
+
+	// Формируем строку из всех куки
+	var cookies string
+	for _, cookie := range cookieHeaders {
+		cookies += fmt.Sprintf("%s=%s; ", cookie.Name, cookie.Value)
+	}
+
+	// Убираем последний лишний "; " (если куки есть)
+	if len(cookies) > 2 {
+		cookies = cookies[:len(cookies)-2]
+	}
+
+	return &cookies, nil
+}
+
+// Настройка Хром драйвера
+
+func SetupChromeDriver(c *gin.Context, account models.Account, cfg config.Config) (cu.Config, error) {
+
+	conf := cu.NewConfig(
+		cu.WithContext(c),
+	)
+
+	// Настройки ChromeFlags и других параметров
+	conf.ChromeFlags = append(conf.ChromeFlags,
+		chromedp.Flag("user-data-dir", "./chrome-profile/"+strconv.Itoa(int(account.ID))),
+		chromedp.Flag("disable-setuid-sandbox", true),
+		chromedp.Flag("disable-features", "FontEnumeration"),
+		chromedp.Flag("disable-sync", true),                           // Отключение синхронизации Google
+		chromedp.Flag("metrics-recording-only", true),                 // Отключение некоторых аналитических данных
+		chromedp.Flag("disable-background-timer-throttling", true),    // Отключение замедления таймеров в фоновом режиме
+		chromedp.Flag("disable-backgrounding-occluded-windows", true), // Запуск фоновых окон без ограничений
+	)
+	if cfg.GinMode != "debug" {
+		conf.ChromeFlags = append(conf.ChromeFlags,
+			chromedp.Flag("disable-extensions", true))
+	}
+
+	if account.UserAgent != nil && *account.UserAgent != "" {
+		conf.ChromeFlags = append(conf.ChromeFlags,
+			chromedp.Flag("headless", true),
+			chromedp.Flag("hide-scrollbars", true),
+			chromedp.Flag("mute-audio", true),
+		)
+	}
+	if account.PublicIP != nil && *account.PublicIP != "" {
+		conf.ChromeFlags = append(conf.ChromeFlags,
+			chromedp.Flag("proxy-server", account.PublicIP), // Настройка HTTP-прокси
+
+		)
+	}
+
+	if account.SessionCookies != nil && *account.SessionCookies != "" {
+		if err := setCookies(c, account); err != nil {
+			log.Printf("Error set cookies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set cookies"})
+			return cu.Config{}, err
+		}
+
+	}
+
+	return conf, nil
+
 }

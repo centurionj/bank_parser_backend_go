@@ -4,6 +4,20 @@ type AccountIDRequest struct {
 	AccountID int `json:"account_id"`
 }
 
-type AccountAccountProfileDirRequest struct {
-	AccountIDs []int `json:"account_ids"`
+type AccountProperties struct {
+	HardwareConcurrency int
+	DeviceMemory        int
+	DeviceProfile       DeviceProfile
+	RandomFrequency     int
+	RandomStart         string
+	RandomStop          string
+	BufferSize          int
+	InputChannels       int
+	OutputChannels      int
+	GPU                 string
+	CPU                 string
+	BatteryVolume       float64
+	IsCharging          bool
+	LocalIP             string
+	PublicIP            string
 }

@@ -14,6 +14,7 @@ type Config struct {
 	HTTPPort            string
 	AlphaLoginUrl       string
 	AlphaTransactionUrl string
+	GinMode             string
 }
 
 // Загружает переменные окружения из файла .env и создает конфиг
@@ -36,6 +37,7 @@ func LoadConfig() (*Config, error) {
 		HTTPPort:            os.Getenv("HTTP_PORT"),
 		AlphaLoginUrl:       os.Getenv("ALPHA_LOGIN_URL"),
 		AlphaTransactionUrl: os.Getenv("ALPHA_TRANSACTION_URL"),
+		GinMode:             os.Getenv("GIN_MODE"),
 	}
 
 	return cfg, nil
