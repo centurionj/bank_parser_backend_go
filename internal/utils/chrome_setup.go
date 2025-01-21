@@ -464,14 +464,16 @@ func SetupChromeDriver(c *gin.Context, account models.Account, cfg config.Config
 	)
 	if cfg.GinMode != "debug" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
-			chromedp.Flag("disable-extensions", true))
+			chromedp.Flag("disable-extensions", true),
+			chromedp.Flag("headless", true),
+			chromedp.Flag("hide-scrollbars", true),
+			chromedp.Flag("mute-audio", true),
+		)
 	}
 
 	if account.UserAgent != nil && *account.UserAgent != "" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
-			chromedp.Flag("headless", true),
-			chromedp.Flag("hide-scrollbars", true),
-			chromedp.Flag("mute-audio", true),
+			chromedp.Flag("user-agent", *account.UserAgent),
 		)
 	}
 	if account.PublicIP != nil && *account.PublicIP != "" {

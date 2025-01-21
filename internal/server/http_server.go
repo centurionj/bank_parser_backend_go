@@ -14,6 +14,8 @@ type HTTPServer struct {
 }
 
 func NewHTTPServer(cfg *config.Config, db *gorm.DB) *HTTPServer {
+	gin.SetMode(cfg.GinMode)
+
 	r := gin.Default()
 
 	server := &HTTPServer{

@@ -7,6 +7,8 @@ import (
 	"log"
 )
 
+// Точка входа в приложение
+
 func main() {
 	// Загрузка конфига
 	cfg, err := config.LoadConfig()
