@@ -172,7 +172,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 			return
 		}
 
-		cookies, err := utils.GetSessionCookies(c)
+		cookies, err := utils.GetSessionCookies(ctx)
 		if err != nil {
 			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
 			return

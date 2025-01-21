@@ -423,20 +423,26 @@ func setCookies(c *gin.Context, account models.Account) error {
 
 // Получение куки
 
-func GetSessionCookies(c *gin.Context) (*string, error) {
-	// Получаем все куки из запроса
-	cookieHeaders := c.Request.Cookies()
+func GetSessionCookies(c context.Context) (*string, error) {
+	// Extract the request from the context (assuming it's stored in context with key "request")
+	req, ok := c.Value("request").(*http.Request)
+	if !ok {
+		return nil, fmt.Errorf("context does not contain a valid *http.Request")
+	}
+
+	// Get all cookies from the request
+	cookieHeaders := req.Cookies()
 	if len(cookieHeaders) == 0 {
 		return nil, fmt.Errorf("no cookies found in the request")
 	}
 
-	// Формируем строку из всех куки
+	// Build the cookie string
 	var cookies string
 	for _, cookie := range cookieHeaders {
 		cookies += fmt.Sprintf("%s=%s; ", cookie.Name, cookie.Value)
 	}
 
-	// Убираем последний лишний "; " (если куки есть)
+	// Remove the last "; " if cookies exist
 	if len(cookies) > 2 {
 		cookies = cookies[:len(cookies)-2]
 	}
