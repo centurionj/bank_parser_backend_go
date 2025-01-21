@@ -13,6 +13,6 @@ import (
 func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) {
 	accountController := controllers.NewAccountController(db, cfg)
 
-	r.POST("api/v1/account/auth/", handlers.AuthAccountHandler(accountController))
+	r.POST("api/v1/account/auth/", handlers.AuthAccountHandler(accountController, *cfg))
 	r.POST("/api/v1/account/delete_profile/", handlers.DelAccountProfileDirHandler(accountController))
 }
