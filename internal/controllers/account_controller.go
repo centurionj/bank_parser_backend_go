@@ -5,6 +5,7 @@ import (
 	"bank_parser_backend_go/internal/models"
 	schem "bank_parser_backend_go/internal/schemas"
 	"bank_parser_backend_go/internal/utils"
+	"context"
 	"errors"
 	"fmt"
 	cu "github.com/Davincible/chromedp-undetected"
@@ -123,130 +124,163 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 
 	loginURL := ac.Cfg.AlphaLoginUrl
 	if loginURL == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Missing AlphaLoginUrl in config"})
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		return errors.New("Missing AlphaLoginUrl in config")
+		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaLoginUrl in config", errors.New("Missing AlphaLoginUrl in config"))
 	}
 
 	conf, err := utils.SetupChromeDriver(c, *account, cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to setup ChromeDriver"})
-		return errors.New("Failed to setup ChromeDriver")
+		return ac.handleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
 	}
 
-	ctx, cancel, err := cu.New(conf)
-	if err != nil {
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		panic(err)
-	}
-	defer cancel()
+	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancelTimeout()
 
-	props := schem.AccountProperties{}
-	if props, err = utils.InjectJSProperties(ctx, *account); err != nil {
-		log.Printf("Error injecting JS: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to inject JS properties"})
-		account.IsErrored = true
-		ac.DB.Save(&account)
+	errChan := make(chan error, 1)
+
+	go func() {
+		ctx, cancel, err := cu.New(conf)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to initialize ChromeDriver context", err)
+			return
+		}
+		defer cancel()
+
+		props, err := utils.InjectJSProperties(ctx, *account)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to inject JS properties", err)
+			return
+		}
+
+		if err := ac.performLogin(ctx, account, loginURL); err != nil {
+			errChan <- err
+			return
+		}
+
+		if err := ac.enterCardNumber(ctx, account.CardNumber); err != nil {
+			errChan <- err
+			return
+		}
+
+		otpCode, err := ac.waitForOTPCode(account)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
+			return
+		}
+
+		if err := ac.enterOTPCode(ctx, otpCode); err != nil {
+			errChan <- err
+			return
+		}
+
+		cookies, err := utils.GetSessionCookies(c)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
+			return
+		}
+
+		if err := ac.saveAccount(account, props, cookies); err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to save account", err)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})
+		errChan <- nil
+	}()
+
+	select {
+	case err := <-errChan:
+		// Если ошибка, возвращаем её
 		return err
+	case <-timeoutCtx.Done():
+		// Если истекло время ожидания, отправляем ошибку и отменяем работу горутины
+		cancelTimeout() // Отмена основного контекста
+		return ac.handleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
 	}
+}
 
-	rand.Seed(time.Now().UnixNano())
+func (ac *AccountController) handleError(c *gin.Context, account *models.Account, statusCode int, message string, err error) error {
+	log.Printf("%s: %v", message, err)
+	account.IsErrored = true
+	ac.DB.Save(&account)
+	c.JSON(statusCode, gin.H{"error": message})
+	return err
+}
 
-	err = chromedp.Run(ctx,
+func (ac *AccountController) performLogin(ctx context.Context, account *models.Account, loginURL string) error {
+	err := chromedp.Run(ctx,
 		chromedp.Navigate(loginURL),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-
+		chromedp.Sleep(randomDuration(1, 3)),
 		chromedp.Evaluate(`document.querySelector("button[data-test-id='phone-auth-button']").click()`, nil),
 		chromedp.WaitVisible(`input[data-test-id='phoneInput']`, chromedp.ByQuery),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.SendKeys(`input[data-test-id='phoneInput']`, account.PhoneNumber[1:]),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.WaitVisible(`button.phone-auth-browser__submit-button`, chromedp.ByQuery),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.Click(`button.phone-auth-browser__submit-button`, chromedp.NodeVisible),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.WaitVisible(`input[data-test-id='card-account-input']`, chromedp.ByQuery),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.SendKeys(`input[data-test-id='card-account-input']`, account.CardNumber),
-		chromedp.Sleep(time.Duration(rand.Intn(3)+1)*time.Second),
-		chromedp.Click(`button[data-test-id='card-account-continue-button']`, chromedp.NodeVisible),
-		chromedp.Sleep(time.Duration(rand.Intn(5)+1)*time.Second),
 	)
-
 	if err != nil {
-		log.Printf("Authorization error: %v", err)
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Authorization failed"})
-		return err
+		return fmt.Errorf("login navigation failed: %w", err)
 	}
 
-	otpCode := account.TemporaryCode
-	if otpCode == nil || *otpCode == "" {
-		startTime := time.Now()
-		timeout := 1 * time.Minute
-
-		for {
-			if time.Since(startTime) > timeout {
-				log.Println("Timeout waiting for OTP code")
-				account.IsErrored = true
-				ac.DB.Save(&account)
-				c.JSON(http.StatusRequestTimeout, gin.H{"error": "Timeout waiting for OTP code"})
-				return err
-			}
-
-			if err := ac.DB.First(&account, account.ID).Error; err != nil {
-				log.Printf("Database error: %v", err)
-				account.IsErrored = true
-				ac.DB.Save(&account)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-				return err
-			}
-
-			if account.TemporaryCode != nil && *account.TemporaryCode != "" {
-				otpCode = account.TemporaryCode
-				break
-			}
-
-			log.Println("OTP code is still empty, retrying...")
-			time.Sleep(time.Duration(rand.Intn(5)+1) * time.Second)
-		}
+	if err := ac.enterDigits(ctx, `input[data-test-id='phoneInput']`, account.PhoneNumber[1:]); err != nil {
+		return fmt.Errorf("error entering phone number: %w", err)
 	}
-	time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 
-	for index, digit := range *otpCode {
-		err = chromedp.Run(ctx,
-			chromedp.Click(fmt.Sprintf(`input.code-input__input_fq4wa:nth-of-type(%d)`, index+1), chromedp.NodeVisible),
-			chromedp.SendKeys(fmt.Sprintf(`input.code-input__input_fq4wa:nth-of-type(%d)`, index+1), string(digit)),
-		)
-		if err != nil {
-			log.Printf("Error entering OTP digit: %v", err)
-			account.IsErrored = true
-			ac.DB.Save(&account)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error entering OTP digit"})
-			return err
+	return chromedp.Run(ctx,
+		chromedp.Click(`button.phone-auth-browser__submit-button`, chromedp.NodeVisible),
+		chromedp.WaitVisible(`input[data-test-id='card-account-input']`, chromedp.ByQuery),
+	)
+}
+
+func (ac *AccountController) enterDigits(ctx context.Context, selector string, digits string) error {
+	for _, digit := range digits {
+		if err := chromedp.Run(ctx, chromedp.SendKeys(selector, string(digit))); err != nil {
+			return fmt.Errorf("error entering digit '%c': %w", digit, err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-
-	cookies, err := utils.GetSessionCookies(c)
-	if err != nil {
-		log.Printf("Error retrieving session cookies: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve session cookies"})
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		return err
-	}
-
-	if err := ac.saveAccount(account, props, cookies); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save account"})
-		account.IsErrored = true
-		ac.DB.Save(&account)
-		return err
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})
 	return nil
+}
+
+func (ac *AccountController) enterCardNumber(ctx context.Context, cardNumber string) error {
+	if err := ac.enterDigits(ctx, `input[data-test-id='card-account-input']`, cardNumber); err != nil {
+		return fmt.Errorf("error entering card number: %w", err)
+	}
+
+	return chromedp.Run(ctx,
+		chromedp.Sleep(randomDuration(1, 3)),
+		chromedp.Click(`button[data-test-id='card-account-continue-button']`, chromedp.NodeVisible),
+		chromedp.Sleep(randomDuration(1, 5)),
+	)
+}
+
+func (ac *AccountController) waitForOTPCode(account *models.Account) (string, error) {
+	startTime := time.Now()
+	for {
+		if time.Since(startTime) > time.Minute {
+			return "", errors.New("timeout waiting for OTP code")
+		}
+
+		if err := ac.DB.First(&account, account.ID).Error; err != nil {
+			return "", fmt.Errorf("database error: %w", err)
+		}
+
+		if account.TemporaryCode != nil && *account.TemporaryCode != "" {
+			return *account.TemporaryCode, nil
+		}
+
+		time.Sleep(randomDuration(1, 5))
+	}
+}
+
+func (ac *AccountController) enterOTPCode(ctx context.Context, otpCode string) error {
+	for index, digit := range otpCode {
+		if err := chromedp.Run(ctx,
+			chromedp.Click(fmt.Sprintf(`input.code-input__input_fq4wa:nth-of-type(%d)`, index+1), chromedp.NodeVisible),
+			chromedp.SendKeys(fmt.Sprintf(`input.code-input__input_fq4wa:nth-of-type(%d)`, index+1), string(digit)),
+		); err != nil {
+			return fmt.Errorf("error entering OTP digit '%c': %w", digit, err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+func randomDuration(min, max int) time.Duration {
+	return time.Duration(rand.Intn(max-min+1)+min) * time.Second
 }
