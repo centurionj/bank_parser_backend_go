@@ -164,10 +164,10 @@ func (ac *AccountController) enterCardNumber(ctx context.Context, cardNumber str
 	)
 }
 
-func (ac *AccountController) waitForOTPCode(account *models.Account) (string, error) {
+func (ac *AccountController) waitForOTPCode(account *models.Account, timeOut int) (string, error) {
 	startTime := time.Now()
 	for {
-		if time.Since(startTime) > time.Minute {
+		if time.Since(startTime) > time.Duration(timeOut)*time.Minute {
 			return "", errors.New("timeout waiting for OTP code")
 		}
 
@@ -214,7 +214,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 	}
 
 	// Создаём общий контекст с таймаутом
-	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), 3*time.Minute)
+	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), time.Duration(cfg.AuthTimeOutMinute)*time.Minute)
 	defer cancelTimeout()
 
 	// Настраиваем ChromeDriver
@@ -247,7 +247,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		}
 
 		// Ожидание OTP-кода
-		otpCode, err := ac.waitForOTPCode(account)
+		otpCode, err := ac.waitForOTPCode(account, cfg.AuthOTPTimeOutSecond)
 		if err != nil {
 			errChan <- ac.handleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
 			return

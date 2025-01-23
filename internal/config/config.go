@@ -10,11 +10,13 @@ import (
 // Структура для хранения конфигурации приложения
 
 type Config struct {
-	PostgresDSN         string
-	HTTPPort            string
-	AlphaLoginUrl       string
-	AlphaTransactionUrl string
-	GinMode             string
+	PostgresDSN          string
+	HTTPPort             string
+	AlphaLoginUrl        string
+	AlphaTransactionUrl  string
+	GinMode              string
+	AuthTimeOutMinute    int
+	AuthOTPTimeOutSecond int
 }
 
 // Загружает переменные окружения из файла .env и создает конфиг
@@ -34,10 +36,12 @@ func LoadConfig() (*Config, error) {
 			os.Getenv("POSTGRES_DB"),
 			os.Getenv("SSL_MODE"),
 		),
-		HTTPPort:            os.Getenv("HTTP_PORT"),
-		AlphaLoginUrl:       os.Getenv("ALPHA_LOGIN_URL"),
-		AlphaTransactionUrl: os.Getenv("ALPHA_TRANSACTION_URL"),
-		GinMode:             os.Getenv("GIN_MODE"),
+		HTTPPort:             os.Getenv("HTTP_PORT"),
+		AlphaLoginUrl:        os.Getenv("ALPHA_LOGIN_URL"),
+		AlphaTransactionUrl:  os.Getenv("ALPHA_TRANSACTION_URL"),
+		GinMode:              os.Getenv("GIN_MODE"),
+		AuthTimeOutMinute:    2,
+		AuthOTPTimeOutSecond: 30,
 	}
 
 	return cfg, nil
