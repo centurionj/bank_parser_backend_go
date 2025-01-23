@@ -470,14 +470,7 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 			conf.ChromeFlags = append(conf.ChromeFlags,
 				chromedp.Flag("proxy-server", account.PublicIP),
 			)
-		} // else {
-		//	account.PublicIP = getProxy()
-		//	ac.DB.Save(&account)
-		//
-		//	conf.ChromeFlags = append(conf.ChromeFlags,
-		//		chromedp.Flag("proxy-server", account.PublicIP),
-		//	)
-		//}
+		}
 	}
 
 	if account.IsAuthenticated != true {
