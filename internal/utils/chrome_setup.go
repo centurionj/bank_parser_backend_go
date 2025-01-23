@@ -8,17 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	cu "github.com/Davincible/chromedp-undetected"
-	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
-	"github.com/gin-gonic/gin"
 	"log"
 	"math/rand"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 )
 
 // Набор профилей для различных устройств
@@ -338,29 +334,22 @@ func injectMediaAndBatteryProperties(ctx context.Context, accountID int64, isCha
 
 // Настройка хрома JS скриптами
 
-func InjectJSProperties(c context.Context, account models.Account) (schem.AccountProperties, error) {
+func InjectJSProperties(ctx context.Context, account models.Account) (schem.AccountProperties, error) {
 
 	props := createAccountProperties(account)
 
-	if account.IsAuthenticated != true {
-		// Удаление сессии
-		if err := clearSessionData(int64(account.ID)); err != nil {
-			return schem.AccountProperties{}, fmt.Errorf("error clearing session data: %w", err)
-		}
-	}
-
 	// Выполняем инъекцию свойств по частям
-	if err := injectNavigatorProperties(c, props.DeviceProfile, props.CPU, props.HardwareConcurrency, props.DeviceMemory); err != nil {
+	if err := injectNavigatorProperties(ctx, props.DeviceProfile, props.CPU, props.HardwareConcurrency, props.DeviceMemory); err != nil {
 		return props, err
 	}
-	if err := injectCanvasAndWebGL(c, props.GPU, props.CPU); err != nil {
+	if err := injectCanvasAndWebGL(ctx, props.GPU, props.CPU); err != nil {
 		return props, err
 	}
-	//if err := injectWebRTCProperties(c, props.localIP, props.publicIP); err != nil {
+	//if err := injectWebRTCProperties(ctx, props.localIP, props.publicIP); err != nil {
 	//	return err
 	//}
 	if err := injectScreenAndAudioProperties(
-		c,
+		ctx,
 		props.DeviceProfile,
 		props.BufferSize,
 		props.InputChannels,
@@ -371,7 +360,7 @@ func InjectJSProperties(c context.Context, account models.Account) (schem.Accoun
 	); err != nil {
 		return props, err
 	}
-	if err := injectMediaAndBatteryProperties(c, int64(account.ID), props.IsCharging, props.BatteryVolume); err != nil {
+	if err := injectMediaAndBatteryProperties(ctx, int64(account.ID), props.IsCharging, props.BatteryVolume); err != nil {
 		return props, err
 	}
 
@@ -380,32 +369,24 @@ func InjectJSProperties(c context.Context, account models.Account) (schem.Accoun
 
 // Установка куки
 
-func setCookies(c *gin.Context, account models.Account) error {
-
+func setCookies(ctx context.Context, account models.Account) error {
 	// Десериализация cookies из строки
-	var cookies []network.Cookie
+	var cookies []network.CookieParam
 	err := json.Unmarshal([]byte(*account.SessionCookies), &cookies)
 	if err != nil {
 		return fmt.Errorf("failed to parse session cookies: %w", err)
 	}
 
 	// Установка cookies через chromedp
-	err = chromedp.Run(c, chromedp.ActionFunc(func(ctx context.Context) error {
+	err = chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		for _, cookie := range cookies {
-			var expires *cdp.TimeSinceEpoch
-			if cookie.Expires > 0 {
-				expiresTime := time.Unix(int64(cookie.Expires), 0)
-				exp := cdp.TimeSinceEpoch(expiresTime)
-				expires = &exp
-			}
-
 			// Установка куки
 			err := network.SetCookie(cookie.Name, cookie.Value).
 				WithDomain(cookie.Domain).
 				WithPath(cookie.Path).
-				WithExpires(expires).
 				WithHTTPOnly(cookie.HTTPOnly).
 				WithSecure(cookie.Secure).
+				WithExpires(cookie.Expires).
 				Do(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to set cookie %s: %w", cookie.Name, err)
@@ -423,50 +404,52 @@ func setCookies(c *gin.Context, account models.Account) error {
 
 // Получение куки
 
-func GetSessionCookies(c context.Context) (*string, error) {
-	// Extract the request from the context (assuming it's stored in context with key "request")
-	req, ok := c.Value("request").(*http.Request)
-	if !ok {
-		return nil, fmt.Errorf("context does not contain a valid *http.Request")
+func GetSessionCookies(ctx context.Context) (string, error) {
+	// Получаем cookies через network.GetCookies
+	var cookies []*network.Cookie
+	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var err error
+		cookies, err = network.GetCookies().Do(ctx)
+		return err
+	}))
+	if err != nil {
+		return "", fmt.Errorf("failed to get cookies: %w", err)
 	}
 
-	// Get all cookies from the request
-	cookieHeaders := req.Cookies()
-	if len(cookieHeaders) == 0 {
-		return nil, fmt.Errorf("no cookies found in the request")
+	// Формируем строку из всех cookies
+	var cookieString string
+	for _, cookie := range cookies {
+		cookieString += fmt.Sprintf("%s=%s; ", cookie.Name, cookie.Value)
 	}
 
-	// Build the cookie string
-	var cookies string
-	for _, cookie := range cookieHeaders {
-		cookies += fmt.Sprintf("%s=%s; ", cookie.Name, cookie.Value)
+	// Убираем последний лишний "; "
+	if len(cookieString) > 2 {
+		cookieString = cookieString[:len(cookieString)-2]
 	}
 
-	// Remove the last "; " if cookies exist
-	if len(cookies) > 2 {
-		cookies = cookies[:len(cookies)-2]
-	}
-
-	return &cookies, nil
+	return cookieString, nil
 }
 
 // Настройка Хром драйвера
 
-func SetupChromeDriver(c *gin.Context, account models.Account, cfg config.Config) (cu.Config, error) {
-
+func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.Config) (cu.Config, context.Context, context.CancelFunc, error) {
 	conf := cu.NewConfig(
-		cu.WithContext(c),
+		cu.WithContext(ctx),
 	)
 
-	// Настройки ChromeFlags и других параметров
+	// Создаём Chrome контекст
+	chromeCtx, cancel := chromedp.NewContext(ctx)
+	defer cancel() // Обеспечиваем отмену в случае ошибки
+
+	// Настройки ChromeFlags
 	conf.ChromeFlags = append(conf.ChromeFlags,
 		chromedp.Flag("user-data-dir", "./chrome-profile/"+strconv.Itoa(int(account.ID))),
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.Flag("disable-features", "FontEnumeration"),
-		chromedp.Flag("disable-sync", true),                           // Отключение синхронизации Google
-		chromedp.Flag("metrics-recording-only", true),                 // Отключение некоторых аналитических данных
-		chromedp.Flag("disable-background-timer-throttling", true),    // Отключение замедления таймеров в фоновом режиме
-		chromedp.Flag("disable-backgrounding-occluded-windows", true), // Запуск фоновых окон без ограничений
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("metrics-recording-only", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
 	)
 	if cfg.GinMode != "debug" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
@@ -482,22 +465,41 @@ func SetupChromeDriver(c *gin.Context, account models.Account, cfg config.Config
 			chromedp.Flag("user-agent", *account.UserAgent),
 		)
 	}
-	if account.PublicIP != nil && *account.PublicIP != "" {
-		conf.ChromeFlags = append(conf.ChromeFlags,
-			chromedp.Flag("proxy-server", account.PublicIP), // Настройка HTTP-прокси
-
-		)
+	if cfg.GinMode != "debug" {
+		if account.PublicIP != nil && *account.PublicIP != "" {
+			conf.ChromeFlags = append(conf.ChromeFlags,
+				chromedp.Flag("proxy-server", account.PublicIP),
+			)
+		} // else {
+		//	account.PublicIP = getProxy()
+		//	ac.DB.Save(&account)
+		//
+		//	conf.ChromeFlags = append(conf.ChromeFlags,
+		//		chromedp.Flag("proxy-server", account.PublicIP),
+		//	)
+		//}
 	}
 
-	if account.SessionCookies != nil && *account.SessionCookies != "" {
-		if err := setCookies(c, account); err != nil {
-			log.Printf("Error set cookies: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set cookies"})
-			return cu.Config{}, err
+	if account.IsAuthenticated != true {
+		// Удаление сессии
+		if err := clearSessionData(int64(account.ID)); err != nil {
+			return cu.Config{}, nil, nil, fmt.Errorf("error clearing session data: %w", err)
 		}
-
 	}
 
-	return conf, nil
+	// Устанавливаем cookies в контекст браузера
+	if account.SessionCookies != nil && *account.SessionCookies != "" {
+		if err := setCookies(chromeCtx, account); err != nil {
+			log.Printf("Error setting cookies: %v", err)
+			return cu.Config{}, nil, nil, fmt.Errorf("failed to set cookies: %w", err)
+		}
+	}
 
+	// Создаём контекст хрома через cu.New
+	ctx, cancel, err := cu.New(conf)
+	if err != nil {
+		return cu.Config{}, nil, nil, fmt.Errorf("failed to initialize ChromeDriver context: %w", err)
+	}
+
+	return conf, ctx, cancel, nil
 }

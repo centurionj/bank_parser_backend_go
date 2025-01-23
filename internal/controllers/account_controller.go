@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/chromedp/chromedp"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -114,90 +113,6 @@ func (ac *AccountController) saveAccount(account *models.Account, props schem.Ac
 	return nil
 }
 
-// Авторизация аккаунта
-
-func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) error {
-	account, err := ac.GetAccount(c)
-	if err != nil {
-		return err
-	}
-
-	loginURL := ac.Cfg.AlphaLoginUrl
-	if loginURL == "" {
-		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaLoginUrl in config", errors.New("Missing AlphaLoginUrl in config"))
-	}
-
-	conf, err := utils.SetupChromeDriver(c, *account, cfg)
-	if err != nil {
-		return ac.handleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
-	}
-
-	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancelTimeout()
-
-	errChan := make(chan error, 1)
-
-	go func() {
-		ctx, cancel, err := cu.New(conf)
-		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to initialize ChromeDriver context", err)
-			return
-		}
-		defer cancel()
-
-		props, err := utils.InjectJSProperties(ctx, *account)
-		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to inject JS properties", err)
-			return
-		}
-
-		if err := ac.performLogin(ctx, account, loginURL); err != nil {
-			errChan <- err
-			return
-		}
-
-		if err := ac.enterCardNumber(ctx, account.CardNumber); err != nil {
-			errChan <- err
-			return
-		}
-
-		otpCode, err := ac.waitForOTPCode(account)
-		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
-			return
-		}
-
-		if err := ac.enterOTPCode(ctx, otpCode); err != nil {
-			errChan <- err
-			return
-		}
-
-		cookies, err := utils.GetSessionCookies(ctx)
-		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
-			return
-		}
-
-		if err := ac.saveAccount(account, props, cookies); err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to save account", err)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})
-		errChan <- nil
-	}()
-
-	select {
-	case err := <-errChan:
-		// Если ошибка, возвращаем её
-		return err
-	case <-timeoutCtx.Done():
-		// Если истекло время ожидания, отправляем ошибку и отменяем работу горутины
-		cancelTimeout() // Отмена основного контекста
-		return ac.handleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
-	}
-}
-
 func (ac *AccountController) handleError(c *gin.Context, account *models.Account, statusCode int, message string, err error) error {
 	log.Printf("%s: %v", message, err)
 	account.IsErrored = true
@@ -283,4 +198,92 @@ func (ac *AccountController) enterOTPCode(ctx context.Context, otpCode string) e
 
 func randomDuration(min, max int) time.Duration {
 	return time.Duration(rand.Intn(max-min+1)+min) * time.Second
+}
+
+// Авторизация аккаунта
+
+func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) error {
+	account, err := ac.GetAccount(c)
+	if err != nil {
+		return err
+	}
+
+	loginURL := ac.Cfg.AlphaLoginUrl
+	if loginURL == "" {
+		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaLoginUrl in config", errors.New("missing AlphaLoginUrl in config"))
+	}
+
+	// Создаём общий контекст с таймаутом
+	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancelTimeout()
+
+	// Настраиваем ChromeDriver
+	_, chromeCtx, cancel, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
+	if err != nil {
+		return ac.handleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
+	}
+	defer cancel()
+
+	errChan := make(chan error, 1)
+
+	go func() {
+		// Инъекция JS-свойств
+		props, err := utils.InjectJSProperties(chromeCtx, *account)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to inject JS properties", err)
+			return
+		}
+
+		// Авторизация
+		if err := ac.performLogin(chromeCtx, account, loginURL); err != nil {
+			errChan <- err
+			return
+		}
+
+		// Ввод номера карты
+		if err := ac.enterCardNumber(chromeCtx, account.CardNumber); err != nil {
+			errChan <- err
+			return
+		}
+
+		// Ожидание OTP-кода
+		otpCode, err := ac.waitForOTPCode(account)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
+			return
+		}
+
+		// Ввод OTP-кода
+		if err := ac.enterOTPCode(chromeCtx, otpCode); err != nil {
+			errChan <- err
+			return
+		}
+
+		// Получение cookies
+		cookies, err := utils.GetSessionCookies(chromeCtx)
+		if err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
+			return
+		}
+
+		// Сохранение данных аккаунта
+		if err := ac.saveAccount(account, props, &cookies); err != nil {
+			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to save account", err)
+			return
+		}
+
+		// Успешный ответ
+		account.IsErrored = false
+		ac.DB.Save(&account)
+		c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})
+		errChan <- nil
+	}()
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-timeoutCtx.Done():
+		cancelTimeout()
+		return ac.handleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
+	}
 }
