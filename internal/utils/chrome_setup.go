@@ -116,12 +116,17 @@ func createAccountProperties(account models.Account) schem.AccountProperties {
 }
 
 // Удаление директории сессии
-func clearSessionData(accountID int64) error {
+
+func ClearSessionDir(accountID int64) (string, error) {
 	sessionPath := filepath.Join("./chrome-profile", strconv.Itoa(int(accountID)))
-	if err := os.RemoveAll(sessionPath); err != nil {
-		return fmt.Errorf("failed to remove session directory: %w", err)
+
+	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("directory does not exist: %s", sessionPath)
 	}
-	return nil
+	if err := os.RemoveAll(sessionPath); err != nil {
+		return "", fmt.Errorf("failed to remove session directory: %w", err)
+	}
+	return "Directory deleted successfully", nil
 }
 
 func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DeviceProfile, cpu string, hardwareConcurrency int, deviceMemory int) error {
@@ -505,7 +510,7 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 
 	if account.IsAuthenticated != true {
 		// Удаление сессии
-		if err := clearSessionData(int64(account.ID)); err != nil {
+		if _, err := ClearSessionDir(int64(account.ID)); err != nil {
 			return cu.Config{}, nil, nil, fmt.Errorf("error clearing session data: %w", err)
 		}
 	}

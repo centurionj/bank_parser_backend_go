@@ -14,8 +14,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -54,34 +52,21 @@ func (ac *AccountController) GetAccount(c *gin.Context) (*models.Account, error)
 
 // Удаление директории с данными аккаунта в хроме
 
-func (ac *AccountController) DelAccountProfileDir(c *gin.Context) error {
+func (ac *AccountController) DelAccountProfileDir(c *gin.Context) {
 	var request schem.AccountIDRequest
 
-	// Parse the JSON request
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
-		return fmt.Errorf("invalid request format: %w", err)
+		return
 	}
 
-	// Define the base directory where the folders are located
-	baseDir := "./chrome-profile/"
-
-	dirPath := filepath.Join(baseDir, fmt.Sprintf("%d", request.AccountID))
-
-	// Attempt to remove the directory
-	if err := os.RemoveAll(dirPath); err != nil {
-		c.JSON(
-			http.StatusInternalServerError,
-			gin.H{
-				"error": fmt.Sprintf("Failed to delete directory for account ID %d: %s",
-					request.AccountID, err.Error()),
-			},
-		)
-		return fmt.Errorf("deletion ERROR: %w", err)
+	res, err := utils.ClearSessionDir(int64(request.AccountID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Directories deleted successfully"})
 
-	return nil
+	c.JSON(http.StatusOK, gin.H{"message": res})
 }
 
 // Сохранение аккаунта

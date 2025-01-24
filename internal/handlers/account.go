@@ -9,11 +9,7 @@ import (
 
 func DelAccountProfileDirHandler(ac *con.AccountController) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := ac.DelAccountProfileDir(c)
-		if err != nil {
-			return
-		}
-		c.JSON(http.StatusOK, nil)
+		ac.DelAccountProfileDir(c)
 	}
 }
 
