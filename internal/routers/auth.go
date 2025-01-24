@@ -9,7 +9,7 @@ import (
 
 // Настройка роутов авторизации
 
-func setupAccountRoutes(r *gin.Engine, accountController *controllers.AccountController, cfg *config.Config) {
-	r.POST("api/v1/account/auth/", handlers.AuthAccountHandler(accountController, *cfg))
-	r.POST("/api/v1/account/delete_profile/", handlers.DelAccountProfileDirHandler(accountController))
+func setupAccountRoutes(rg *gin.RouterGroup, accountController *controllers.AccountController, cfg *config.Config) {
+	rg.POST("/auth/", handlers.AuthAccountHandler(accountController, *cfg))
+	rg.POST("/delete_profile/", handlers.DelAccountProfileDirHandler(accountController))
 }

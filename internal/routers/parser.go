@@ -9,7 +9,7 @@ import (
 
 // Настройка роутов парсинга
 
-func setupParserRoutes(r *gin.Engine, accountController *controllers.AccountController, cfg *config.Config) {
-	r.POST("api/v1/parser/auth/", handlers.AuthAccountHandler(accountController, *cfg))
-	r.POST("/api/v1/parser/pars/", handlers.DelAccountProfileDirHandler(accountController))
+func setupParserRoutes(rg *gin.RouterGroup, accountController *controllers.AccountController, cfg *config.Config) {
+	rg.POST("/auth/", handlers.AuthAccountHandler(accountController, *cfg))
+	rg.POST("/pars/", handlers.DelAccountProfileDirHandler(accountController))
 }
