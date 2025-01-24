@@ -208,9 +208,9 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		return err
 	}
 
-	loginURL := ac.Cfg.AlphaLoginUrl
+	loginURL := ac.Cfg.AlphaUrl
 	if loginURL == "" {
-		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaLoginUrl in config", errors.New("missing AlphaLoginUrl in config"))
+		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaUrl in config", errors.New("missing AlphaUrl in config"))
 	}
 
 	// Создаём общий контекст с таймаутом

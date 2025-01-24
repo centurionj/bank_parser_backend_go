@@ -5,9 +5,9 @@ import (
 	"bank_parser_backend_go/internal/models"
 	schem "bank_parser_backend_go/internal/schemas"
 	"context"
-	"encoding/json"
 	"fmt"
 	cu "github.com/Davincible/chromedp-undetected"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"log"
@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // Набор профилей для различных устройств
@@ -367,12 +369,41 @@ func InjectJSProperties(ctx context.Context, account models.Account) (schem.Acco
 	return props, nil
 }
 
+// Парсинг cookies из строки в []network.CookieParam
+
+func parseCookieString(cookieString string, cfg config.Config) ([]network.CookieParam, error) {
+	parts := strings.Split(cookieString, "; ")
+	var cookies []network.CookieParam
+
+	for _, part := range parts {
+		// Разделяем имя и значение
+		cookieParts := strings.SplitN(part, "=", 2)
+		if len(cookieParts) != 2 {
+			return nil, fmt.Errorf("invalid cookie format: %s", part)
+		}
+
+		expiresAt := time.Now().Add(31536000 * time.Second) // 1 год
+		expiresTime := cdp.TimeSinceEpoch(expiresAt)
+
+		cookies = append(cookies, network.CookieParam{
+			Name:  cookieParts[0],
+			Value: cookieParts[1],
+			// Эти значения нужно задавать вручную, если нет информации в строке:
+			Domain:   cfg.AlphaUrl,
+			Path:     "/",
+			HTTPOnly: false,
+			Secure:   false,
+			Expires:  &expiresTime,
+		})
+	}
+
+	return cookies, nil
+}
+
 // Установка куки
 
-func setCookies(ctx context.Context, account models.Account) error {
-	// Десериализация cookies из строки
-	var cookies []network.CookieParam
-	err := json.Unmarshal([]byte(*account.SessionCookies), &cookies)
+func setCookies(ctx context.Context, account models.Account, cfg config.Config) error {
+	cookies, err := parseCookieString(*account.SessionCookies, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to parse session cookies: %w", err)
 	}
@@ -380,7 +411,6 @@ func setCookies(ctx context.Context, account models.Account) error {
 	// Установка cookies через chromedp
 	err = chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		for _, cookie := range cookies {
-			// Установка куки
 			err := network.SetCookie(cookie.Name, cookie.Value).
 				WithDomain(cookie.Domain).
 				WithPath(cookie.Path).
@@ -480,9 +510,9 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 		}
 	}
 
-	// Устанавливаем cookies в контекст браузера
+	//Устанавливаем cookies в контекст браузера
 	if account.SessionCookies != nil && *account.SessionCookies != "" {
-		if err := setCookies(chromeCtx, account); err != nil {
+		if err := setCookies(chromeCtx, account, cfg); err != nil {
 			log.Printf("Error setting cookies: %v", err)
 			return cu.Config{}, nil, nil, fmt.Errorf("failed to set cookies: %w", err)
 		}
