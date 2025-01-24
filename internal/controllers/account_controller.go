@@ -167,7 +167,7 @@ func (ac *AccountController) enterCardNumber(ctx context.Context, cardNumber str
 func (ac *AccountController) waitForOTPCode(account *models.Account, timeOut int) (string, error) {
 	startTime := time.Now()
 	for {
-		if time.Since(startTime) > time.Duration(timeOut)*time.Minute {
+		if time.Since(startTime) > time.Duration(timeOut)*time.Second {
 			return "", errors.New("timeout waiting for OTP code")
 		}
 
@@ -193,6 +193,7 @@ func (ac *AccountController) enterOTPCode(ctx context.Context, otpCode string) e
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+	//time.Sleep(3 * time.Minute)
 	return nil
 }
 
@@ -218,15 +219,23 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 	defer cancelTimeout()
 
 	// Настраиваем ChromeDriver
-	_, chromeCtx, cancel, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
+	_, chromeCtx, cancelChrome, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
 	if err != nil {
 		return ac.handleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
 	}
-	defer cancel()
+	defer cancelChrome() // Убедитесь, что браузер будет закрыт в любом случае
 
 	errChan := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			// Убедитесь, что браузер закроется в случае паники
+			if r := recover(); r != nil {
+				cancelChrome()
+				errChan <- fmt.Errorf("panic occurred: %v", r)
+			}
+		}()
+
 		// Инъекция JS-свойств
 		props, err := utils.InjectJSProperties(chromeCtx, *account)
 		if err != nil {
@@ -281,9 +290,11 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 
 	select {
 	case err := <-errChan:
+		// Возвращаем ошибку, если она произошла
 		return err
 	case <-timeoutCtx.Done():
-		cancelTimeout()
+		// Таймаут: закрываем браузер и возвращаем ошибку
+		cancelChrome()
 		return ac.handleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
 	}
 }
