@@ -15,7 +15,7 @@ type Config struct {
 	AlphaUrl             string
 	AlphaTransactionUrl  string
 	GinMode              string
-	AuthTimeOutMinute    int
+	AuthTimeOutSecond    int
 	AuthOTPTimeOutSecond int
 }
 
@@ -40,8 +40,8 @@ func LoadConfig() (*Config, error) {
 		AlphaUrl:             os.Getenv("ALPHA_LOGIN_URL"),
 		AlphaTransactionUrl:  os.Getenv("ALPHA_TRANSACTION_URL"),
 		GinMode:              os.Getenv("GIN_MODE"),
-		AuthTimeOutMinute:    2,
-		AuthOTPTimeOutSecond: 30,
+		AuthTimeOutSecond:    180,
+		AuthOTPTimeOutSecond: 60,
 	}
 
 	return cfg, nil

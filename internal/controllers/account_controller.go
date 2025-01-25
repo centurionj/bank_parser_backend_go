@@ -60,7 +60,7 @@ func (ac *AccountController) DelAccountProfileDir(c *gin.Context) {
 		return
 	}
 
-	res, err := utils.ClearSessionDir(int64(request.AccountID))
+	res, err := utils.ClearSessionDir(int64(request.AccountID), false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -117,6 +117,7 @@ func (ac *AccountController) performLogin(ctx context.Context, account *models.A
 		return fmt.Errorf("login navigation failed: %w", err)
 	}
 
+	// Ввод номера телефона
 	if err := ac.enterDigits(ctx, `input[data-test-id='phoneInput']`, account.PhoneNumber[1:]); err != nil {
 		return fmt.Errorf("error entering phone number: %w", err)
 	}
@@ -168,6 +169,8 @@ func (ac *AccountController) waitForOTPCode(account *models.Account, timeOut int
 	}
 }
 
+// Ввод OTP ключа
+
 func (ac *AccountController) enterOTPCode(ctx context.Context, otpCode string) error {
 	for index, digit := range otpCode {
 		if err := chromedp.Run(ctx,
@@ -178,7 +181,61 @@ func (ac *AccountController) enterOTPCode(ctx context.Context, otpCode string) e
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	//time.Sleep(3 * time.Minute)
+	return nil
+}
+
+func (ac *AccountController) generateAccountPassword() string {
+	rand.Seed(time.Now().UnixNano())
+	length := rand.Intn(5) + 4 // Длина от 4 до 8
+	password := make([]byte, length)
+	for i := range password {
+		password[i] = '0' + byte(rand.Intn(10)) // Генерация цифры
+	}
+	return string(password)
+}
+
+// Ввод постоянного пароля для входа в лк
+
+func (ac *AccountController) enterPassword(ctx context.Context, password string) error {
+	// Нажимаем на кнопку доверять
+	err := chromedp.Run(ctx,
+		chromedp.Sleep(randomDuration(1, 8)),
+		chromedp.WaitVisible(`button[data-test-id="trust-device-page-submit-btn"]`, chromedp.ByQuery),
+		chromedp.Click(`button[data-test-id="trust-device-page-submit-btn"]`, chromedp.ByQuery),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to click 'Trust' button: %w", err)
+	}
+
+	if err := ac.enterDigits(ctx, `input[data-test-id="new-password"]`, password); err != nil { // Первичный ввод пароля
+		return fmt.Errorf("failed to enter new password: %w", err)
+	}
+
+	_ = chromedp.Run(ctx,
+		chromedp.Sleep(randomDuration(1, 3)),
+		chromedp.WaitVisible(`input[data-test-id="new-password-again"]`, chromedp.ByQuery),
+		chromedp.Click(`input[data-test-id="new-password-again"]`, chromedp.ByQuery),
+	)
+
+	if err := ac.enterDigits(ctx, `input[data-test-id="new-password-again"]`, password); err != nil { // Исправить селектор // Повторный ввод пароля
+		return fmt.Errorf("failed to enter password confirmation: %w", err)
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.WaitVisible(`button[data-test-id="submit-button"]`, chromedp.ByQuery),
+		chromedp.Click(`button[data-test-id="submit-button"]`, chromedp.ByQuery),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to click 'Save' button: %w", err)
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Sleep(10*time.Second),
+	)
+	if err != nil {
+		return fmt.Errorf("setting password failed: %w", err)
+	}
+
 	return nil
 }
 
@@ -200,7 +257,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 	}
 
 	// Создаём общий контекст с таймаутом
-	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), time.Duration(cfg.AuthTimeOutMinute)*time.Minute)
+	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), time.Duration(cfg.AuthTimeOutSecond)*time.Second)
 	defer cancelTimeout()
 
 	// Настраиваем ChromeDriver
@@ -253,6 +310,13 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 			return
 		}
 
+		// Генерация постоянного пароля и его ввод
+		password := ac.generateAccountPassword()
+		if err := ac.enterPassword(chromeCtx, password); err != nil {
+			errChan <- err
+			return
+		}
+
 		// Получение cookies
 		cookies, err := utils.GetSessionCookies(chromeCtx)
 		if err != nil {
@@ -267,6 +331,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		}
 
 		// Успешный ответ
+		account.Password = &password
 		account.IsErrored = false
 		ac.DB.Save(&account)
 		c.JSON(http.StatusOK, gin.H{"message": "Authorization successful"})

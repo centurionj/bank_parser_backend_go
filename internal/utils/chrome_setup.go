@@ -117,12 +117,20 @@ func createAccountProperties(account models.Account) schem.AccountProperties {
 
 // Удаление директории сессии
 
-func ClearSessionDir(accountID int64) (string, error) {
+func ClearSessionDir(accountID int64, ignoreNotExist bool) (string, error) {
 	sessionPath := filepath.Join("./chrome-profile", strconv.Itoa(int(accountID)))
 
+	// Проверяем, существует ли директория
 	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
+		if ignoreNotExist {
+			// Возвращаем успех, если нужно игнорировать ошибку отсутствия директории
+			return "Directory does not exist, but ignored", nil
+		}
+		// Возвращаем ошибку, если игнорировать её не нужно
 		return "", fmt.Errorf("directory does not exist: %s", sessionPath)
 	}
+
+	// Удаляем директорию
 	if err := os.RemoveAll(sessionPath); err != nil {
 		return "", fmt.Errorf("failed to remove session directory: %w", err)
 	}
@@ -347,7 +355,7 @@ func InjectJSProperties(ctx context.Context, account models.Account) (schem.Acco
 
 	// Выполняем инъекцию свойств по частям
 	if err := injectNavigatorProperties(ctx, props.DeviceProfile, props.CPU, props.HardwareConcurrency, props.DeviceMemory); err != nil {
-		return props, err
+		return props, fmt.Errorf("failed to enable network tracking: %w", err)
 	}
 	if err := injectCanvasAndWebGL(ctx, props.GPU, props.CPU); err != nil {
 		return props, err
@@ -510,7 +518,7 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 
 	if account.IsAuthenticated != true {
 		// Удаление сессии
-		if _, err := ClearSessionDir(int64(account.ID)); err != nil {
+		if _, err := ClearSessionDir(int64(account.ID), true); err != nil {
 			return cu.Config{}, nil, nil, fmt.Errorf("error clearing session data: %w", err)
 		}
 	}

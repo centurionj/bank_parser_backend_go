@@ -4,6 +4,10 @@ type AccountIDRequest struct {
 	AccountID int `json:"account_id"`
 }
 
+type AccountIDsRequest struct {
+	AccountIDS []int `json:"account_ids"`
+}
+
 type AccountProperties struct {
 	HardwareConcurrency int
 	DeviceMemory        int

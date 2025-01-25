@@ -12,6 +12,7 @@ type Account struct {
 	CardNumber       string    `gorm:"type:char(16);not null"`
 	PhoneNumber      string    `gorm:"type:char(11);not null"`
 	TemporaryCode    *string   `gorm:"type:char(4);default:null"`
+	Password         *string   `gorm:"type:varchar(8);default:null"`
 	CreatedAt        time.Time `gorm:"autoCreateTime"`
 	IsActive         bool      `gorm:"default:true"`
 	IsAuthenticated  bool      `gorm:"default:false"`
