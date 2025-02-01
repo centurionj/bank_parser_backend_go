@@ -35,19 +35,40 @@ func ExtractTransactions(chromeCtx context.Context) error {
 		return fmt.Errorf("failed to reload page or switch to 'Пополнение': %w", err)
 	}
 
-	// Поиск кнопок в блоке "Сегодня"
-	var todaySectionButtons []*cdp.Node
+	// Находим первый блок "Сегодня" и все кнопки внутри него
+	var rawButtons []string // Изменяем тип на []string
 	if err := chromedp.Run(chromeCtx,
-		chromedp.Nodes(`div.operations-history-list__section--epmef:has(.operation-header__day--8BOp7) button[data-test-id="operation-cell"]`, &todaySectionButtons, chromedp.ByQueryAll),
+		chromedp.Evaluate(`
+            (() => {
+                // Находим первый блок "Сегодня"
+                const todaySections = Array.from(document.querySelectorAll('div.operations-history-list__section--epmef'));
+                const todaySection = todaySections.find(section => section.querySelector('.operation-header__day--8BOp7')?.textContent === 'сегодня');
+                if (!todaySection) {
+                    throw new Error('Today section not found');
+                }
+                // Возвращаем HTML всех кнопок внутри этого блока
+                return Array.from(todaySection.querySelectorAll('button[data-test-id="operation-cell"]'), button => button.outerHTML);
+            })()
+        `, &rawButtons),
 	); err != nil {
 		return fmt.Errorf("failed to find operation cells in 'Today' section: %w", err)
+	}
+
+	// Преобразуем сырые данные в узлы DOM
+	todaySectionButtons := make([]*cdp.Node, len(rawButtons))
+	for i, html := range rawButtons {
+		if html != "" {
+			todaySectionButtons[i] = &cdp.Node{NodeValue: html}
+		}
 	}
 
 	// Создаем мапу для хранения HTML-кодов окон
 	windowHTMLMap := make(map[int]string)
 
 	// Проходим по каждой кнопке, кликаем на неё, извлекаем HTML-код окна и закрываем его
-	for i := range todaySectionButtons {
+	totalButtons := len(todaySectionButtons) // Количество кнопок в блоке "Сегодня"
+	println(totalButtons)
+	for i, _ := range todaySectionButtons {
 		buttonIndex := i + 1 // Нумерация кнопок начинается с 1
 
 		// Проверяем, не отменён ли контекст
@@ -102,6 +123,12 @@ func ExtractTransactions(chromeCtx context.Context) error {
 			fmt.Printf("Failed to close popup after clicking button %d: %v\n", buttonIndex, err)
 			continue // Пропускаем эту кнопку, если закрытие не удалось
 		}
+
+		// Проверяем, является ли текущая кнопка последней
+		if buttonIndex == totalButtons {
+			fmt.Println("All buttons from 'Today' section have been processed. Exiting.")
+			break // Выход из цикла после обработки последней кнопки
+		}
 	}
 
 	// Вывод мапы в консоль
@@ -125,7 +152,6 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("missing AlphaUrl in config")
 	}
 
-	// Настройка ChromeDriver
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(cfg.ParserTimeOutSecond)*time.Second)
 	defer cancelTimeout()
 
@@ -157,10 +183,12 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("failed to parse history: %w", err)
 	}
 
+	// Проверка состояния контекста
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
+
 	return nil
 }

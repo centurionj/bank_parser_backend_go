@@ -29,47 +29,60 @@ func (tc *TransactionController) ParsTransactions(c *gin.Context) error {
 	var accountIDRequest schem.AccountIDRequest
 	if err := c.ShouldBindJSON(&accountIDRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
-		return err
+		return err // Возвращаем ошибку
 	}
 
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(tc.Cfg.ParserTimeOutSecond)*time.Second)
 	defer cancel()
 
-	errChan := make(chan error, 1)
-	defer close(errChan)
-
 	var account models.Account
 	if err := tc.DB.First(&account, accountIDRequest.AccountID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			errChan <- errors.New("account not found")
-		} else {
-			errChan <- errors.New("database error")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+			return fmt.Errorf("account not found")
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return fmt.Errorf("database error")
 	}
+
+	// Канал для обработки ошибок
+	errChan := make(chan error, 1)
+	defer close(errChan)
+
+	// Запускаем парсинг в отдельной горутине
 	go func(accountID int) {
 		defer func() {
-			// Убедитесь, что браузер закроется в случае паники
+			// Убедимся, что браузер закрывается при панике
 			if r := recover(); r != nil {
 				cancel()
 				errChan <- fmt.Errorf("panic occurred: %v", r)
 			}
 		}()
-		// Передаем контекст с таймаутом в FindTransactions
+		// Выполняем FindTransactions
 		err := utils.FindTransactions(ctx, *tc.Cfg, &account)
 		if err != nil {
 			errChan <- err
 			return
 		}
-		errChan <- nil
+		errChan <- nil // Успешное завершение
 	}(int(account.ID))
 
-	for err := range errChan {
+	// Ждем завершения горутины
+	select {
+	case err := <-errChan:
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return err
+			return err // Возвращаем ошибку
+		}
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Parsing timeout exceeded"})
+			return fmt.Errorf("parsing timeout exceeded")
 		}
 	}
+
+	// Возвращаем успешный ответ
 	c.JSON(http.StatusOK, gin.H{"message": "All transactions parsed successfully"})
-	return nil
+	return nil // Возвращаем nil при успешном завершении
 }
