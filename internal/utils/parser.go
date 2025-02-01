@@ -16,7 +16,7 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 	}
 
 	// Создаем общий контекст с таймаутом из переданного контекста
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(cfg.AuthTimeOutSecond)*time.Minute)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(cfg.ParserTimeOutSecond)*time.Second)
 	defer cancelTimeout()
 
 	// Настраиваем ChromeDriver
@@ -45,6 +45,11 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 	err = chromedp.Run(chromeCtx,
 		chromedp.WaitVisible(`li[data-test-id='item'] a[href='/history/']`, chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelector("li[data-test-id='item'] a[href='/history/']").click()`, nil),
+		chromedp.Sleep(RandomDuration(1, 3)),
+		chromedp.WaitVisible(`button.base-tag__component--Odrwf span`, chromedp.ByQuery),
+		chromedp.Evaluate(`
+			Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.includes('Пополнение'))?.click()
+			`, nil),
 		chromedp.Sleep(time.Minute),
 	)
 	if err != nil {

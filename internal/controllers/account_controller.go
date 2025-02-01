@@ -118,7 +118,7 @@ func (ac *AccountController) performLogin(ctx context.Context, account *models.A
 	}
 
 	// Ввод номера телефона
-	if err := ac.enterDigits(ctx, `input[data-test-id='phoneInput']`, account.PhoneNumber[1:]); err != nil {
+	if err := utils.EnterDigits(ctx, `input[data-test-id='phoneInput']`, account.PhoneNumber[1:]); err != nil {
 		return fmt.Errorf("error entering phone number: %w", err)
 	}
 
@@ -128,18 +128,8 @@ func (ac *AccountController) performLogin(ctx context.Context, account *models.A
 	)
 }
 
-func (ac *AccountController) enterDigits(ctx context.Context, selector string, digits string) error {
-	for _, digit := range digits {
-		if err := chromedp.Run(ctx, chromedp.SendKeys(selector, string(digit))); err != nil {
-			return fmt.Errorf("error entering digit '%c': %w", digit, err)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return nil
-}
-
 func (ac *AccountController) enterCardNumber(ctx context.Context, cardNumber string) error {
-	if err := ac.enterDigits(ctx, `input[data-test-id='card-account-input']`, cardNumber); err != nil {
+	if err := utils.EnterDigits(ctx, `input[data-test-id='card-account-input']`, cardNumber); err != nil {
 		return fmt.Errorf("error entering card number: %w", err)
 	}
 
@@ -207,7 +197,7 @@ func (ac *AccountController) enterPassword(ctx context.Context, password string)
 		return fmt.Errorf("failed to click 'Trust' button: %w", err)
 	}
 
-	if err := ac.enterDigits(ctx, `input[data-test-id="new-password"]`, password); err != nil { // Первичный ввод пароля
+	if err := utils.EnterDigits(ctx, `input[data-test-id="new-password"]`, password); err != nil { // Первичный ввод пароля
 		return fmt.Errorf("failed to enter new password: %w", err)
 	}
 
@@ -217,7 +207,7 @@ func (ac *AccountController) enterPassword(ctx context.Context, password string)
 		chromedp.Click(`input[data-test-id="new-password-again"]`, chromedp.ByQuery),
 	)
 
-	if err := ac.enterDigits(ctx, `input[data-test-id="new-password-again"]`, password); err != nil { // Исправить селектор // Повторный ввод пароля
+	if err := utils.EnterDigits(ctx, `input[data-test-id="new-password-again"]`, password); err != nil { // Исправить селектор // Повторный ввод пароля
 		return fmt.Errorf("failed to enter password confirmation: %w", err)
 	}
 
