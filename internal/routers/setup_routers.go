@@ -9,6 +9,7 @@ import (
 
 func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) {
 	accountController := controllers.NewAccountController(db, cfg)
+	transactionController := controllers.NewTransactionController(db, cfg)
 
 	// Группа для маршрутов аккаунта
 	accountGroup := r.Group("api/v1/account")
@@ -16,5 +17,5 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) {
 
 	// Группа для маршрутов парсинга
 	parserGroup := r.Group("api/v1/parser")
-	setupParserRoutes(parserGroup, accountController, cfg)
+	setupParserRoutes(parserGroup, transactionController, cfg)
 }

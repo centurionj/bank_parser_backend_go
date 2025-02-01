@@ -98,7 +98,7 @@ func (ac *AccountController) saveAccount(account *models.Account, props schem.Ac
 	return nil
 }
 
-func (ac *AccountController) handleError(c *gin.Context, account *models.Account, statusCode int, message string, err error) error {
+func (ac *AccountController) accountHandleError(c *gin.Context, account *models.Account, statusCode int, message string, err error) error {
 	log.Printf("%s: %v", message, err)
 	account.IsErrored = true
 	ac.DB.Save(&account)
@@ -109,7 +109,7 @@ func (ac *AccountController) handleError(c *gin.Context, account *models.Account
 func (ac *AccountController) performLogin(ctx context.Context, account *models.Account, loginURL string) error {
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(loginURL),
-		chromedp.Sleep(randomDuration(1, 3)),
+		chromedp.Sleep(utils.RandomDuration(1, 3)),
 		chromedp.Evaluate(`document.querySelector("button[data-test-id='phone-auth-button']").click()`, nil),
 		chromedp.WaitVisible(`input[data-test-id='phoneInput']`, chromedp.ByQuery),
 	)
@@ -144,9 +144,9 @@ func (ac *AccountController) enterCardNumber(ctx context.Context, cardNumber str
 	}
 
 	return chromedp.Run(ctx,
-		chromedp.Sleep(randomDuration(1, 3)),
+		chromedp.Sleep(utils.RandomDuration(1, 3)),
 		chromedp.Click(`button[data-test-id='card-account-continue-button']`, chromedp.NodeVisible),
-		chromedp.Sleep(randomDuration(1, 5)),
+		chromedp.Sleep(utils.RandomDuration(1, 5)),
 	)
 }
 
@@ -165,7 +165,7 @@ func (ac *AccountController) waitForOTPCode(account *models.Account, timeOut int
 			return *account.TemporaryCode, nil
 		}
 
-		time.Sleep(randomDuration(1, 5))
+		time.Sleep(utils.RandomDuration(1, 5))
 	}
 }
 
@@ -199,7 +199,7 @@ func (ac *AccountController) generateAccountPassword() string {
 func (ac *AccountController) enterPassword(ctx context.Context, password string) error {
 	// Нажимаем на кнопку доверять
 	err := chromedp.Run(ctx,
-		chromedp.Sleep(randomDuration(1, 8)),
+		chromedp.Sleep(utils.RandomDuration(1, 8)),
 		chromedp.WaitVisible(`button[data-test-id="trust-device-page-submit-btn"]`, chromedp.ByQuery),
 		chromedp.Click(`button[data-test-id="trust-device-page-submit-btn"]`, chromedp.ByQuery),
 	)
@@ -212,7 +212,7 @@ func (ac *AccountController) enterPassword(ctx context.Context, password string)
 	}
 
 	_ = chromedp.Run(ctx,
-		chromedp.Sleep(randomDuration(1, 3)),
+		chromedp.Sleep(utils.RandomDuration(1, 3)),
 		chromedp.WaitVisible(`input[data-test-id="new-password-again"]`, chromedp.ByQuery),
 		chromedp.Click(`input[data-test-id="new-password-again"]`, chromedp.ByQuery),
 	)
@@ -239,10 +239,6 @@ func (ac *AccountController) enterPassword(ctx context.Context, password string)
 	return nil
 }
 
-func randomDuration(min, max int) time.Duration {
-	return time.Duration(rand.Intn(max-min+1)+min) * time.Second
-}
-
 // Авторизация аккаунта
 
 func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) error {
@@ -253,7 +249,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 
 	loginURL := ac.Cfg.AlphaUrl
 	if loginURL == "" {
-		return ac.handleError(c, account, http.StatusInternalServerError, "Missing AlphaUrl in config", errors.New("missing AlphaUrl in config"))
+		return ac.accountHandleError(c, account, http.StatusInternalServerError, "Missing AlphaUrl in config", errors.New("missing AlphaUrl in config"))
 	}
 
 	// Создаём общий контекст с таймаутом
@@ -263,7 +259,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 	// Настраиваем ChromeDriver
 	_, chromeCtx, cancelChrome, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
 	if err != nil {
-		return ac.handleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
+		return ac.accountHandleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
 	}
 	defer cancelChrome() // Убедитесь, что браузер будет закрыт в любом случае
 
@@ -281,7 +277,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		// Инъекция JS-свойств
 		props, err := utils.InjectJSProperties(chromeCtx, *account)
 		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to inject JS properties", err)
+			errChan <- ac.accountHandleError(c, account, http.StatusInternalServerError, "Failed to inject JS properties", err)
 			return
 		}
 
@@ -300,7 +296,7 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		// Ожидание OTP-кода
 		otpCode, err := ac.waitForOTPCode(account, cfg.AuthOTPTimeOutSecond)
 		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
+			errChan <- ac.accountHandleError(c, account, http.StatusRequestTimeout, "Timeout waiting for OTP code", err)
 			return
 		}
 
@@ -320,13 +316,13 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		// Получение cookies
 		cookies, err := utils.GetSessionCookies(chromeCtx)
 		if err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
+			errChan <- ac.accountHandleError(c, account, http.StatusInternalServerError, "Failed to retrieve session cookies", err)
 			return
 		}
 
 		// Сохранение данных аккаунта
 		if err := ac.saveAccount(account, props, &cookies); err != nil {
-			errChan <- ac.handleError(c, account, http.StatusInternalServerError, "Failed to save account", err)
+			errChan <- ac.accountHandleError(c, account, http.StatusInternalServerError, "Failed to save account", err)
 			return
 		}
 
@@ -345,6 +341,6 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 	case <-timeoutCtx.Done():
 		// Таймаут: закрываем браузер и возвращаем ошибку
 		cancelChrome()
-		return ac.handleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
+		return ac.accountHandleError(c, account, http.StatusGatewayTimeout, "Operation timed out", errors.New("operation timed out"))
 	}
 }

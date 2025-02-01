@@ -17,6 +17,7 @@ type Config struct {
 	GinMode              string
 	AuthTimeOutSecond    int
 	AuthOTPTimeOutSecond int
+	ParserTimeOutSecond  int
 }
 
 // Загружает переменные окружения из файла .env и создает конфиг
@@ -42,6 +43,7 @@ func LoadConfig() (*Config, error) {
 		GinMode:              os.Getenv("GIN_MODE"),
 		AuthTimeOutSecond:    180,
 		AuthOTPTimeOutSecond: 60,
+		ParserTimeOutSecond:  3600,
 	}
 
 	return cfg, nil

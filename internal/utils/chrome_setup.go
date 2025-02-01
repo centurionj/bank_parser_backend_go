@@ -39,23 +39,62 @@ func getRandomDeviceProfile() schem.DeviceProfile {
 			Screen:    struct{ Width, Height int }{1920, 1080},
 		},
 		{
-			UserAgent: "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.0.0 Mobile Safari/537.36",
-			Platform:  "Linux armv7l",
-			Screen:    struct{ Width, Height int }{1080, 2340},
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:91.0) Gecko/20100101 Firefox/91.0",
+			Platform:  "Win64",
+			Screen:    struct{ Width, Height int }{2560, 1440},
 		},
 		{
-			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-			Platform:  "iPhone",
-			Screen:    struct{ Width, Height int }{390, 844},
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_5_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36",
+			Platform:  "MacIntel",
+			Screen:    struct{ Width, Height int }{2880, 1800},
 		},
 		{
-			UserAgent: "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-			Platform:  "iPad",
-			Screen:    struct{ Width, Height int }{810, 1080},
+			UserAgent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:90.0) Gecko/20100101 Firefox/90.0",
+			Platform:  "Linux x86_64",
+			Screen:    struct{ Width, Height int }{3440, 1440},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59",
+			Platform:  "Win32",
+			Screen:    struct{ Width, Height int }{1366, 768},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36",
+			Platform:  "MacIntel",
+			Screen:    struct{ Width, Height int }{1280, 800},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0",
+			Platform:  "Linux x86_64",
+			Screen:    struct{ Width, Height int }{1600, 900},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+			Platform:  "Win32",
+			Screen:    struct{ Width, Height int }{1680, 1050},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36",
+			Platform:  "MacIntel",
+			Screen:    struct{ Width, Height int }{1920, 1200},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:91.0) Gecko/20100101 Firefox/91.0",
+			Platform:  "Linux x86_64",
+			Screen:    struct{ Width, Height int }{1280, 720},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36 OPR/77.0.4054.277",
+			Platform:  "Win32",
+			Screen:    struct{ Width, Height int }{2560, 1600},
+		},
+		{
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
+			Platform:  "MacIntel",
+			Screen:    struct{ Width, Height int }{3840, 2160},
 		},
 	}
 
-	// Выбираем случайный профиль устройства
 	return devices[rand.Intn(len(devices))]
 }
 
@@ -108,8 +147,8 @@ func createAccountProperties(account models.Account) schem.AccountProperties {
 		props.IsCharging = *account.IsCharging
 		props.BatteryVolume = *account.BatteryVolume
 
-		props.LocalIP = *account.LocalIP
-		props.PublicIP = *account.PublicIP
+		//props.LocalIP = *account.LocalIP
+		//props.PublicIP = *account.PublicIP
 	}
 
 	return props
