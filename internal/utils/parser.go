@@ -50,39 +50,42 @@ func ExtractTransactions(chromeCtx context.Context) error {
 	for i := range todaySectionButtons {
 		buttonIndex := i + 1 // Нумерация кнопок начинается с 1
 
+		// Проверяем, не отменён ли контекст
+		if chromeCtx.Err() != nil {
+			fmt.Println("Context canceled. Stopping execution.")
+			break // Прерываем цикл, если контекст отменён
+		}
+
 		// Клик по кнопке
-		if err := chromedp.Run(chromeCtx,
+		err := chromedp.Run(chromeCtx,
 			chromedp.Click(fmt.Sprintf(`div.operations-history-list__section--epmef:has(.operation-header__day--8BOp7) button[data-test-id="operation-cell"]:nth-of-type(%d)`, buttonIndex), chromedp.NodeVisible),
 			chromedp.Sleep(RandomDuration(2, 4)), // Ждем после клика
-		); err != nil {
+		)
+		if err != nil {
 			fmt.Printf("Failed to click on button %d: %v\n", buttonIndex, err)
 			continue // Пропускаем эту кнопку, если клик не удался
 		}
 
 		// Извлечение HTML-кода открывшегося окна
 		var windowHTML string
-		if err := chromedp.Run(chromeCtx,
+		err = chromedp.Run(chromeCtx,
 			chromedp.Evaluate(`
                 (() => {
                     const popup = document.querySelector('.content__content--jQ6je');
                     return popup ? popup.outerHTML : '';
                 })()
             `, &windowHTML),
-		); err != nil {
+		)
+		if err != nil || windowHTML == "" {
 			fmt.Printf("Failed to extract popup HTML content after clicking button %d: %v\n", buttonIndex, err)
 			continue // Пропускаем эту кнопку, если HTML не удалось получить
 		}
 
-		// Добавляем HTML-код окна в мапу, если он не пустой
-		if windowHTML != "" {
-			windowHTMLMap[buttonIndex] = windowHTML
-		} else {
-			fmt.Printf("Popup not found after clicking button %d\n", buttonIndex)
-			continue
-		}
+		// Добавляем HTML-код окна в мапу
+		windowHTMLMap[buttonIndex] = windowHTML
 
 		// Закрытие окна через JavaScript
-		if err := chromedp.Run(chromeCtx,
+		err = chromedp.Run(chromeCtx,
 			chromedp.Evaluate(`
                 (() => {
                     const closeButton = document.querySelector('button[aria-label="закрыть"]');
@@ -94,16 +97,21 @@ func ExtractTransactions(chromeCtx context.Context) error {
                 })()
             `, nil),
 			chromedp.Sleep(RandomDuration(2, 4)), // Ждем после закрытия окна
-		); err != nil {
+		)
+		if err != nil {
 			fmt.Printf("Failed to close popup after clicking button %d: %v\n", buttonIndex, err)
 			continue // Пропускаем эту кнопку, если закрытие не удалось
 		}
 	}
 
 	// Вывод мапы в консоль
-	fmt.Println("Window HTML Map:")
-	for key, value := range windowHTMLMap {
-		fmt.Printf("Window for Button %d: %s\n", key, value)
+	if len(windowHTMLMap) > 0 {
+		fmt.Println("Window HTML Map:")
+		for key, value := range windowHTMLMap {
+			fmt.Printf("Window for Button %d: %s\n", key, value)
+		}
+	} else {
+		fmt.Println("No valid windows found.")
 	}
 
 	return nil
