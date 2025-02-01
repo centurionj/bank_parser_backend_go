@@ -12,9 +12,7 @@ import (
 
 // Извлекает данные из HTML страницы
 
-func ExtractTransactions(chromeCtx context.Context) ([]map[string]string, error) {
-	var transactions []map[string]string
-
+func ExtractTransactions(chromeCtx context.Context) error {
 	// Перезагрузка страницы и выполнение JavaScript для клика по кнопке "Пополнение"
 	err := chromedp.Run(chromeCtx,
 		chromedp.Reload(),
@@ -22,9 +20,7 @@ func ExtractTransactions(chromeCtx context.Context) ([]map[string]string, error)
 		chromedp.Sleep(RandomDuration(2, 4)), // Даем время на загрузку контента
 		chromedp.Evaluate(`
             (() => {
-                // Находим все кнопки с классом base-tag__component--Odrwf
                 const buttons = document.querySelectorAll('button.base-tag__component--Odrwf');
-                // Ищем кнопку с текстом "Пополнение"
                 for (const button of buttons) {
                     if (button.textContent.includes('Пополнение')) {
                         button.click();
@@ -37,57 +33,53 @@ func ExtractTransactions(chromeCtx context.Context) ([]map[string]string, error)
 		chromedp.Sleep(RandomDuration(3, 5)), // Ждем после клика
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to reload page or switch to 'Пополнение': %w", err)
+		return fmt.Errorf("failed to reload page or switch to 'Пополнение': %w", err)
 	}
 
-	// Находим первый элемент operations-history-list__section--epmef
-	var firstSection string
+	// Находим блок "Сегодня" и все кнопки внутри него
+	var todaySectionButtons []*cdp.Node
 	err = chromedp.Run(chromeCtx,
-		chromedp.Evaluate(`document.querySelector('div.operations-history-list__section--epmef')?.outerHTML`, &firstSection),
-	)
-	if err != nil || firstSection == "" {
-		return nil, fmt.Errorf("failed to find the first operations-history-list__section--epmef: %w", err)
-	}
-
-	// Находим все кнопки operation-cell внутри первого sections
-	var operationCells []*cdp.Node
-	err = chromedp.Run(chromeCtx,
-		chromedp.Nodes(`div.operations-history-list__section--epmef button[data-test-id="operation-cell"]`, &operationCells, chromedp.ByQueryAll),
+		chromedp.Nodes(`div.operations-history-list__section--epmef:has(.operation-header__day--8BOp7) button[data-test-id="operation-cell"]`, &todaySectionButtons, chromedp.ByQueryAll),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find operation cells: %w", err)
+		return fmt.Errorf("failed to find operation cells in 'Today' section: %w", err)
 	}
 
-	// Обработка каждой операции
-	for i, cell := range operationCells {
-		var transactionData map[string]string = make(map[string]string)
+	// Создаем мапу для хранения HTML-кодов кнопок
+	buttonHTMLMap := make(map[int]string)
 
-		// Клик по кнопке операции
+	// Проходим по каждой кнопке и сохраняем её HTML-код
+	for i, _ := range todaySectionButtons {
+		var buttonHTML string
 		err = chromedp.Run(chromeCtx,
-			chromedp.Click(fmt.Sprintf(`%s`, cell.NodeValue), chromedp.NodeVisible),
-			chromedp.Sleep(RandomDuration(1, 2)), // Ждем загрузки данных
+			chromedp.Evaluate(fmt.Sprintf(`
+                (() => {
+                    const todaySection = document.querySelector('div.operations-history-list__section--epmef:has(.operation-header__day--8BOp7)');
+                    if (!todaySection) {
+                        throw new Error('Today section not found');
+                    }
+                    const buttons = todaySection.querySelectorAll('button[data-test-id="operation-cell"]');
+                    return buttons[%d]?.outerHTML || '';
+                })()
+            `, i), &buttonHTML),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to click on operation cell: %w", err)
+			return fmt.Errorf("failed to extract HTML content for button %d: %w", i+1, err)
 		}
 
-		// Получаем HTML-код открытой страницы
-		var htmlContent string
-		err = chromedp.Run(chromeCtx,
-			chromedp.Evaluate(`document.querySelector('div[data-test-id="operation-details-side-panel-body"]')?.outerHTML`, &htmlContent),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract HTML content: %w", err)
+		// Проверяем, что HTML-код не пустой
+		if buttonHTML != "" {
+			buttonHTMLMap[i+1] = buttonHTML
 		}
-
-		// Сохраняем данные
-		transactionData["button_number"] = fmt.Sprintf("%d", i+1) // Номер кнопки (начинается с 1)
-		transactionData["html_content"] = htmlContent             // HTML-код страницы
-
-		transactions = append(transactions, transactionData)
 	}
 
-	return transactions, nil
+	// Выводим мапу в консоль
+	fmt.Println("Button HTML Map:")
+	for key, value := range buttonHTMLMap {
+		fmt.Printf("Button %d: %s\n", key, value)
+	}
+
+	return nil
 }
 
 // Парсинг
@@ -135,12 +127,12 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("failed to navigate to History tab: %w", err)
 	}
 
-	transactions, err := ExtractTransactions(chromeCtx)
+	err = ExtractTransactions(chromeCtx)
 
 	if err != nil {
 		return fmt.Errorf("failed to parse history: %w", err)
 	}
-	println(transactions)
+	//println(transactions)
 
 	// Проверка отмены контекста после каждого шага
 	select {
