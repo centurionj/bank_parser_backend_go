@@ -192,7 +192,6 @@ func injectNavigatorProperties(ctx context.Context, deviceProfile schem.DevicePr
 
 	// Выполнение JS-скриптов для navigator
 	for _, script := range jsScripts {
-		log.Printf("Injecting navigator script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
 			log.Printf("Error injecting navigator script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)
@@ -224,7 +223,6 @@ func injectCanvasAndWebGL(ctx context.Context, gpu string, cpu string) error {
 
 	// Выполнение JS-скриптов для Canvas и WebGL
 	for _, script := range jsScripts {
-		log.Printf("Injecting canvas/webgl script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
 			log.Printf("Error injecting canvas/webgl script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)
@@ -337,7 +335,6 @@ func injectScreenAndAudioProperties(
 
 	// Executing JavaScript code to set screen properties and generate audio fingerprint
 	for _, script := range jsScripts {
-		log.Printf("Injecting script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
 			log.Printf("Error injecting script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)
@@ -376,7 +373,6 @@ func injectMediaAndBatteryProperties(ctx context.Context, accountID int64, isCha
 
 	// Выполнение JS-скриптов для медиа и батареи
 	for _, script := range jsScripts {
-		log.Printf("Injecting media/battery script: %s", script)
 		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
 			log.Printf("Error injecting media/battery script: %v", err)
 			return fmt.Errorf("JS injection failed: %w", err)

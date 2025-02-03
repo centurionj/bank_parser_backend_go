@@ -9,7 +9,7 @@ import (
 
 // Извлекает данные из HTML страницы
 
-func extractTransactions(chromeCtx context.Context) (map[int]string, error) {
+func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string]interface{}, error) {
 	// Клик по кнопке "Пополнение" и ожидание загрузки контента
 	if err := chromedp.Run(chromeCtx,
 		chromedp.Reload(),
@@ -59,8 +59,8 @@ func extractTransactions(chromeCtx context.Context) (map[int]string, error) {
 		}
 	}
 
-	// Создаем мапу для хранения HTML-кодов окон
-	windowHTMLMap := make(map[int]string)
+	// Создаем слайс для хранения результатов
+	var results []map[string]interface{}
 
 	// Проходим по каждой кнопке, кликаем на неё, извлекаем HTML-код окна и закрываем его
 	totalButtons := len(todaySectionButtons) // Количество кнопок в блоке "Сегодня"
@@ -98,8 +98,15 @@ func extractTransactions(chromeCtx context.Context) (map[int]string, error) {
 			continue // Пропускаем эту кнопку, если HTML не удалось получить
 		}
 
-		// Добавляем HTML-код окна в мапу
-		windowHTMLMap[buttonIndex] = windowHTML
+		// Создаем запись для текущей транзакции
+		result := map[string]interface{}{
+			"account_id":         accountID,
+			"transaction_number": buttonIndex,
+			"source_code":        windowHTML,
+		}
+
+		// Добавляем запись в результат
+		results = append(results, result)
 
 		// Закрытие окна через JavaScript
 		err = chromedp.Run(chromeCtx,
@@ -127,5 +134,5 @@ func extractTransactions(chromeCtx context.Context) (map[int]string, error) {
 		}
 	}
 
-	return windowHTMLMap, nil
+	return results, nil
 }

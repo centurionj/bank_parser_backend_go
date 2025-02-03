@@ -14,6 +14,7 @@ type Config struct {
 	PostgresDSN          string
 	HTTPPort             string
 	AlphaUrl             string
+	BasePythonApiUrl     string
 	AlphaTransactionUrl  string
 	GinMode              string
 	AuthTimeOutSecond    int
@@ -41,6 +42,7 @@ func LoadConfig() (*Config, error) {
 		),
 		HTTPPort:             os.Getenv("HTTP_PORT"),
 		AlphaUrl:             os.Getenv("ALPHA_LOGIN_URL"),
+		BasePythonApiUrl:     os.Getenv("BASE_PYTHON_API_URL"),
 		AlphaTransactionUrl:  os.Getenv("ALPHA_TRANSACTION_URL"),
 		GinMode:              os.Getenv("GIN_MODE"),
 		AuthTimeOutSecond:    180,
