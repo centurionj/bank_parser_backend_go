@@ -10,6 +10,7 @@ import (
 // Структура для хранения конфигурации приложения
 
 type Config struct {
+	TZ                   string
 	PostgresDSN          string
 	HTTPPort             string
 	AlphaUrl             string
@@ -29,6 +30,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
+		TZ: os.Getenv("TIME_ZONE"),
 		PostgresDSN: fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 			os.Getenv("POSTGRES_USER"),
 			os.Getenv("POSTGRES_PASSWORD"),
