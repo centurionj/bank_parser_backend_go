@@ -12,7 +12,6 @@ import (
 func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string]interface{}, error) {
 	// Клик по кнопке "Пополнение" и ожидание загрузки контента
 	if err := chromedp.Run(chromeCtx,
-		chromedp.Sleep(RandomDuration(1, 3)), // Даем время на полную загрузку страницы
 		chromedp.Evaluate(`
         (() => {
             const buttons = document.querySelectorAll('button.base-tag__component--CWYoD');
@@ -26,7 +25,7 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
             throw new Error('Button not found');
         })()
     `, nil),
-		chromedp.Sleep(RandomDuration(3, 5)), // Ждем после клика для загрузки контента
+		chromedp.Sleep(RandomDuration(2, 3)), // Ждем после клика для загрузки контента
 	); err != nil {
 		return nil, fmt.Errorf("failed to switch to 'Пополнение': %w", err)
 	}
@@ -34,7 +33,7 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 	// Находим первый блок "Сегодня" и все кнопки внутри него
 	var rawButtons []string
 	if err := chromedp.Run(chromeCtx,
-		chromedp.Sleep(RandomDuration(2, 4)),
+		chromedp.Sleep(RandomDuration(1, 3)),
 		chromedp.Evaluate(`
             (() => {
                 const todaySections = Array.from(document.querySelectorAll('div.operations-history-list__section--xX794'));
@@ -75,9 +74,9 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 
 		// Клик по кнопке
 		err := chromedp.Run(chromeCtx,
-			chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед кликом
+			//chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед кликом
 			chromedp.Click(fmt.Sprintf(`div.operations-history-list__section--xX794 button[data-test-id="operation-cell"]:nth-of-type(%d)`, buttonIndex), chromedp.NodeVisible),
-			chromedp.Sleep(RandomDuration(2, 4)), // Ждем после клика
+			chromedp.Sleep(RandomDuration(1, 3)), // Ждем после клика
 		)
 		if err != nil {
 			fmt.Printf("Failed to click on button %d: %v\n", buttonIndex, err)
@@ -87,7 +86,7 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 		// Извлечение HTML-кода открывшегося окна
 		var windowHTML string
 		err = chromedp.Run(chromeCtx,
-			chromedp.Sleep(RandomDuration(1, 3)),                               // Даем время на загрузку попапа
+			//chromedp.Sleep(RandomDuration(1, 3)),                               // Даем время на загрузку попапа
 			chromedp.WaitVisible(`.content__content--jQ6je`, chromedp.ByQuery), // Ждем видимости попапа
 			chromedp.Evaluate(`
                 (() => {
@@ -111,7 +110,7 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 
 		// Закрытие окна через JavaScript
 		err = chromedp.Run(chromeCtx,
-			chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед закрытием
+			//chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед закрытием
 			chromedp.Evaluate(`
                 (() => {
                     const closeButton = document.querySelector('button[aria-label="закрыть"]');

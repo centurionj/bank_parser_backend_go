@@ -25,11 +25,11 @@ func NewTransactionController(db *gorm.DB, cfg *config.Config) *TransactionContr
 	return &TransactionController{DB: db, Cfg: cfg}
 }
 
-func (tc *TransactionController) ParsTransactions(c *gin.Context) error {
+func (tc *TransactionController) ParsTransactions(c *gin.Context) {
 	var accountIDRequest schem.AccountIDRequest
 	if err := c.ShouldBindJSON(&accountIDRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
-		return err // Возвращаем ошибку
+		return // Выходим из функции
 	}
 
 	// Создаем контекст с таймаутом
@@ -40,15 +40,17 @@ func (tc *TransactionController) ParsTransactions(c *gin.Context) error {
 	if err := tc.DB.First(&account, accountIDRequest.AccountID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
-			return fmt.Errorf("account not found")
+			return // Выходим из функции
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return fmt.Errorf("database error")
+		return // Выходим из функции
 	}
 
 	// Канал для обработки ошибок
 	errChan := make(chan error, 1)
-	defer close(errChan)
+
+	// Флаг, указывающий, был ли уже отправлен ответ
+	responseSent := false
 
 	// Запускаем парсинг в отдельной горутине
 	go func(accountID int) {
@@ -58,8 +60,9 @@ func (tc *TransactionController) ParsTransactions(c *gin.Context) error {
 				cancel()
 				errChan <- fmt.Errorf("panic occurred: %v", r)
 			}
+			close(errChan) // Закрываем канал после завершения работы
 		}()
-		// Выполняем FindTransactions
+
 		err := utils.FindTransactions(ctx, *tc.Cfg, &account)
 		if err != nil {
 			errChan <- err
@@ -71,18 +74,19 @@ func (tc *TransactionController) ParsTransactions(c *gin.Context) error {
 	// Ждем завершения горутины
 	select {
 	case err := <-errChan:
-		if err != nil {
+		if err != nil && !responseSent {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return err // Возвращаем ошибку
+			responseSent = true // Отметим, что ответ уже отправлен
 		}
 	case <-ctx.Done():
-		if ctx.Err() == context.DeadlineExceeded {
+		if ctx.Err() == context.DeadlineExceeded && !responseSent {
 			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Parsing timeout exceeded"})
-			return fmt.Errorf("parsing timeout exceeded")
+			responseSent = true // Отметим, что ответ уже отправлен
 		}
 	}
 
-	// Возвращаем успешный ответ
-	c.JSON(http.StatusOK, gin.H{"message": "All transactions parsed successfully"})
-	return nil // Возвращаем nil при успешном завершении
+	// Если все успешно и ответ еще не отправлен
+	if !responseSent {
+		c.JSON(http.StatusOK, gin.H{"message": "All transactions parsed successfully"})
+	}
 }

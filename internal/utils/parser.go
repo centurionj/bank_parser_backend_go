@@ -51,9 +51,6 @@ func SendTransactions(results []map[string]interface{}, targetURL string) error 
 		return fmt.Errorf("failed to format JSON: %w", err)
 	}
 
-	fmt.Println("Sending the following JSON payload:")
-	fmt.Println(prettyJSON.String())
-
 	// Создаем POST-запрос с правильным Content-Type
 	postReq, err := http.NewRequest("POST", finalUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -109,7 +106,7 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		chromedp.Sleep(RandomDuration(1, 3)),
 		chromedp.WaitVisible(`li[data-test-id='item'] a[href='/history/']`, chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelector("li[data-test-id='item'] a[href='/history/']").click()`, nil),
-		chromedp.Sleep(RandomDuration(1, 3)),
+		chromedp.Sleep(RandomDuration(1, 2)),
 	); err != nil {
 		return fmt.Errorf("failed to navigate to History tab: %w", err)
 	}
