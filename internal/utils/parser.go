@@ -16,13 +16,13 @@ import (
 
 // отправляет список транзакций на указанный URL
 
-func SendTransactions(ctx context.Context, results []map[string]interface{}, targetURL string) error {
+func SendTransactions(results []map[string]interface{}, targetURL string) error {
 	// Проверяем, что URL указан
 	if targetURL == "" {
 		return fmt.Errorf("missing target URL")
 	}
 
-	finalUrl := targetURL + "/prser/"
+	finalUrl := targetURL + "/payments/prepare/"
 
 	// Создаем cookie jar для хранения cookies
 	jar, err := cookiejar.New(nil)
@@ -50,13 +50,18 @@ func SendTransactions(ctx context.Context, results []map[string]interface{}, tar
 	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
 		return fmt.Errorf("failed to format JSON: %w", err)
 	}
+
 	fmt.Println("Sending the following JSON payload:")
 	fmt.Println(prettyJSON.String())
 
+	// Создаем POST-запрос с правильным Content-Type
 	postReq, err := http.NewRequest("POST", finalUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create POST request: %w", err)
 	}
+
+	// Устанавливаем заголовок Content-Type
+	postReq.Header.Set("Content-Type", "application/json")
 
 	// Отправляем POST-запрос
 	postResp, err := client.Do(postReq)
@@ -116,7 +121,7 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("failed to parse history: %w", err)
 	}
 
-	if err := SendTransactions(ctx, results, cfg.BasePythonApiUrl); err != nil {
+	if err := SendTransactions(results, cfg.BasePythonApiUrl); err != nil {
 		return fmt.Errorf("failed to send transactions: %w", err)
 	}
 

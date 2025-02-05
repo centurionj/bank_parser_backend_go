@@ -12,38 +12,38 @@ import (
 func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string]interface{}, error) {
 	// Клик по кнопке "Пополнение" и ожидание загрузки контента
 	if err := chromedp.Run(chromeCtx,
-		chromedp.Reload(),
-		chromedp.WaitVisible(`button.base-tag__component--Odrwf span`, chromedp.ByQuery),
-		chromedp.Sleep(RandomDuration(1, 4)),
+		chromedp.Sleep(RandomDuration(1, 3)), // Даем время на полную загрузку страницы
 		chromedp.Evaluate(`
-            (() => {
-                const buttons = document.querySelectorAll('button.base-tag__component--Odrwf');
-                for (const button of buttons) {
-                    if (button.textContent.includes('Пополнение')) {
-                        button.click();
-                        return;
-                    }
+        (() => {
+            const buttons = document.querySelectorAll('button.base-tag__component--CWYoD');
+            for (const button of buttons) {
+                if (button.textContent.trim() === 'Пополнение') {
+                    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+                    button.dispatchEvent(clickEvent);
+                    return;
                 }
-                throw new Error('Button not found');
-            })()
-        `, nil),
-		chromedp.Sleep(RandomDuration(1, 3)),
+            }
+            throw new Error('Button not found');
+        })()
+    `, nil),
+		chromedp.Sleep(RandomDuration(3, 5)), // Ждем после клика для загрузки контента
 	); err != nil {
-		return nil, fmt.Errorf("failed to reload page or switch to 'Пополнение': %w", err)
+		return nil, fmt.Errorf("failed to switch to 'Пополнение': %w", err)
 	}
 
 	// Находим первый блок "Сегодня" и все кнопки внутри него
 	var rawButtons []string
 	if err := chromedp.Run(chromeCtx,
+		chromedp.Sleep(RandomDuration(2, 4)),
 		chromedp.Evaluate(`
             (() => {
-                // Находим первый блок "Сегодня"
-                const todaySections = Array.from(document.querySelectorAll('div.operations-history-list__section--epmef'));
-                const todaySection = todaySections.find(section => section.querySelector('.operation-header__day--8BOp7')?.textContent === 'сегодня');
+                const todaySections = Array.from(document.querySelectorAll('div.operations-history-list__section--xX794'));
+                const todaySection = todaySections.find(section => 
+                    section.querySelector('.operation-header__day--Cobpl')?.textContent.trim().toLowerCase() === 'сегодня'
+                );
                 if (!todaySection) {
                     throw new Error('Today section not found');
                 }
-                // Возвращаем HTML всех кнопок внутри этого блока
                 return Array.from(todaySection.querySelectorAll('button[data-test-id="operation-cell"]'), button => button.outerHTML);
             })()
         `, &rawButtons),
@@ -75,8 +75,9 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 
 		// Клик по кнопке
 		err := chromedp.Run(chromeCtx,
-			chromedp.Click(fmt.Sprintf(`div.operations-history-list__section--epmef:has(.operation-header__day--8BOp7) button[data-test-id="operation-cell"]:nth-of-type(%d)`, buttonIndex), chromedp.NodeVisible),
-			chromedp.Sleep(RandomDuration(1, 4)), // Ждем после клика
+			chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед кликом
+			chromedp.Click(fmt.Sprintf(`div.operations-history-list__section--xX794 button[data-test-id="operation-cell"]:nth-of-type(%d)`, buttonIndex), chromedp.NodeVisible),
+			chromedp.Sleep(RandomDuration(2, 4)), // Ждем после клика
 		)
 		if err != nil {
 			fmt.Printf("Failed to click on button %d: %v\n", buttonIndex, err)
@@ -86,6 +87,8 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 		// Извлечение HTML-кода открывшегося окна
 		var windowHTML string
 		err = chromedp.Run(chromeCtx,
+			chromedp.Sleep(RandomDuration(1, 3)),                               // Даем время на загрузку попапа
+			chromedp.WaitVisible(`.content__content--jQ6je`, chromedp.ByQuery), // Ждем видимости попапа
 			chromedp.Evaluate(`
                 (() => {
                     const popup = document.querySelector('.content__content--jQ6je');
@@ -104,17 +107,17 @@ func extractTransactions(chromeCtx context.Context, accountID int) ([]map[string
 			"transaction_number": buttonIndex,
 			"source_code":        windowHTML,
 		}
-
-		// Добавляем запись в результат
 		results = append(results, result)
 
 		// Закрытие окна через JavaScript
 		err = chromedp.Run(chromeCtx,
+			chromedp.Sleep(RandomDuration(1, 3)), // Добавляем задержку перед закрытием
 			chromedp.Evaluate(`
                 (() => {
                     const closeButton = document.querySelector('button[aria-label="закрыть"]');
                     if (closeButton) {
-                        closeButton.click();
+                        const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+                        closeButton.dispatchEvent(clickEvent);
                     } else {
                         console.warn('Close button not found');
                     }
