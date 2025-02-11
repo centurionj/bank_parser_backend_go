@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  django:
+    image: web:latest
+    container_name: django_app
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - app_network
+
+
+  parser:
+    build:
+      context: ./parser
+      dockerfile: Dockerfile
+    container_name: go_parser
+    restart: always
+    environment:
+      - API_URL=http://django:8000/api
+    networks:
+      - app_network
+
+  db:
+    image: db:latest
+    container_name: postgres_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    networks:
+      - app_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+      - static_volume:/app/static
+      - media_volume:/app/media
+    depends_on:
+      - django
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  pg_data:
+  static_volume:
+  media_volume:
