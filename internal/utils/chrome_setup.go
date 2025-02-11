@@ -510,14 +510,11 @@ func GetSessionCookies(ctx context.Context) (string, error) {
 
 // Настройка Хром драйвера
 
-func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.Config) (cu.Config, context.Context, context.CancelFunc, error) {
+func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.Config) (context.Context, context.CancelFunc, error) {
+	// Создаем конфигурацию Chrome
 	conf := cu.NewConfig(
 		cu.WithContext(ctx),
 	)
-
-	// Создаём Chrome контекст
-	chromeCtx, cancel := chromedp.NewContext(ctx)
-	defer cancel() // Обеспечиваем отмену в случае ошибки
 
 	// Настройки ChromeFlags
 	conf.ChromeFlags = append(conf.ChromeFlags,
@@ -537,7 +534,6 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 			chromedp.Flag("mute-audio", true),
 		)
 	}
-
 	if account.UserAgent != nil && *account.UserAgent != "" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
 			chromedp.Flag("user-agent", *account.UserAgent),
@@ -550,27 +546,27 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 			)
 		}
 	}
-
 	if account.IsAuthenticated != true {
 		// Удаление сессии
 		if _, err := ClearSessionDir(int64(account.ID), true); err != nil {
-			return cu.Config{}, nil, nil, fmt.Errorf("error clearing session data: %w", err)
+			return nil, nil, fmt.Errorf("error clearing session data: %w", err)
 		}
 	}
 
-	//Устанавливаем cookies в контекст браузера
-	if account.SessionCookies != nil && *account.SessionCookies != "" {
-		if err := setCookies(chromeCtx, account, cfg); err != nil {
-			log.Printf("Error setting cookies: %v", err)
-			return cu.Config{}, nil, nil, fmt.Errorf("failed to set cookies: %w", err)
-		}
-	}
-
-	// Создаём контекст хрома через cu.New
+	// Создание нового контекста Chrome через cu.New
 	ctx, cancel, err := cu.New(conf)
 	if err != nil {
-		return cu.Config{}, nil, nil, fmt.Errorf("failed to initialize ChromeDriver context: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize ChromeDriver context: %w", err)
 	}
 
-	return conf, ctx, cancel, nil
+	// Устанавливаем cookies в контекст браузера
+	if account.SessionCookies != nil && *account.SessionCookies != "" {
+		if err := setCookies(ctx, account, cfg); err != nil {
+			log.Printf("Error setting cookies: %v", err)
+			cancel() // Закрываем контекст при ошибке
+			return nil, nil, fmt.Errorf("failed to set cookies: %w", err)
+		}
+	}
+
+	return ctx, cancel, nil
 }

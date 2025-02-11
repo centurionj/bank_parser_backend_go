@@ -242,22 +242,22 @@ func (ac *AccountController) AuthAccount(c *gin.Context, cfg config.Config) erro
 		return ac.accountHandleError(c, account, http.StatusInternalServerError, "Missing AlphaUrl in config", errors.New("missing AlphaUrl in config"))
 	}
 
-	// Создаём общий контекст с таймаутом
+	// Создаем общий контекст с таймаутом
 	timeoutCtx, cancelTimeout := context.WithTimeout(context.Background(), time.Duration(cfg.AuthTimeOutSecond)*time.Second)
 	defer cancelTimeout()
 
 	// Настраиваем ChromeDriver
-	_, chromeCtx, cancelChrome, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
+	chromeCtx, cancelChrome, err := utils.SetupChromeDriver(timeoutCtx, *account, cfg)
 	if err != nil {
 		return ac.accountHandleError(c, account, http.StatusInternalServerError, "Failed to setup ChromeDriver", err)
 	}
-	defer cancelChrome() // Убедитесь, что браузер будет закрыт в любом случае
+	defer cancelChrome() // Убедимся, что браузер будет закрыт в любом случае
 
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer func() {
-			// Убедитесь, что браузер закроется в случае паники
+			// Убедимся, что браузер закроется в случае паники
 			if r := recover(); r != nil {
 				cancelChrome()
 				errChan <- fmt.Errorf("panic occurred: %v", r)

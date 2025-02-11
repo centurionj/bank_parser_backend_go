@@ -50,6 +50,7 @@ func SendTransactions(results []map[string]interface{}, targetURL string) error 
 	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
 		return fmt.Errorf("failed to format JSON: %w", err)
 	}
+	fmt.Println(string(prettyJSON.Bytes()))
 
 	// Создаем POST-запрос с правильным Content-Type
 	postReq, err := http.NewRequest("POST", finalUrl, bytes.NewBuffer(jsonData))
@@ -85,15 +86,19 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("missing AlphaUrl in config")
 	}
 
+	// Создаем контекст с таймаутом для всей операции
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(cfg.ParserTimeOutSecond)*time.Second)
 	defer cancelTimeout()
 
-	_, chromeCtx, cancelChrome, err := SetupChromeDriver(timeoutCtx, *account, cfg)
+	// Устанавливаем ChromeDriver
+	chromeCtx, cancelChrome, err := SetupChromeDriver(timeoutCtx, *account, cfg)
 	if err != nil {
-		cancelChrome()
+		if cancelChrome != nil {
+			cancelChrome() // Закрываем Chrome при ошибке
+		}
 		return fmt.Errorf("failed to setup ChromeDriver: %w", err)
 	}
-	defer cancelChrome()
+	defer cancelChrome() // Закрываем Chrome при выходе из функции
 
 	// Инъекция JS-свойств
 	if _, err := InjectJSProperties(chromeCtx, *account); err != nil {
@@ -113,11 +118,11 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 
 	// Извлечение транзакций
 	results, err := extractTransactions(chromeCtx, int(account.ID))
-
 	if err != nil {
 		return fmt.Errorf("failed to parse history: %w", err)
 	}
 
+	// Отправка транзакций
 	if err := SendTransactions(results, cfg.BasePythonApiUrl); err != nil {
 		return fmt.Errorf("failed to send transactions: %w", err)
 	}

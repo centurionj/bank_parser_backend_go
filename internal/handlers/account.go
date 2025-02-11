@@ -4,7 +4,6 @@ import (
 	"bank_parser_backend_go/internal/config"
 	con "bank_parser_backend_go/internal/controllers"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func DelAccountProfileDirHandler(ac *con.AccountController) gin.HandlerFunc {
@@ -19,6 +18,5 @@ func AuthAccountHandler(ac *con.AccountController, cfg config.Config) gin.Handle
 		if err != nil {
 			return
 		}
-		c.JSON(http.StatusOK, nil)
 	}
 }
