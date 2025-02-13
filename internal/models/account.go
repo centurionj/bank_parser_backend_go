@@ -10,6 +10,7 @@ type Account struct {
 	ID               uint      `gorm:"primaryKey;autoIncrement"`
 	Title            *string   `gorm:"type:varchar(25);default:null"`
 	CardNumber       string    `gorm:"type:char(16);not null"`
+	AccountNumber    *string   `gorm:"type:varchar(20);default:null"`
 	PhoneNumber      string    `gorm:"type:char(11);not null"`
 	TemporaryCode    *string   `gorm:"type:char(4);default:null"`
 	Password         *string   `gorm:"type:varchar(8);default:null"`

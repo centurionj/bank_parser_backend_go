@@ -16,15 +16,16 @@ import (
 
 // отправляет список транзакций на указанный URL
 
-func SendTransactions(results []map[string]interface{}, targetURL string) error {
+func SendTransactions(results string, targetURL string) error {
 	// Проверяем, что URL указан
 	if targetURL == "" {
 		return fmt.Errorf("missing target URL")
 	}
 
+	// Формируем полный URL для запроса
 	finalUrl := targetURL + "/payments/prepare/"
 
-	// Создаем cookie jar для хранения cookies
+	// Создаем cookie jar для хранения cookies (если необходимо)
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return fmt.Errorf("failed to create cookie jar: %w", err)
@@ -35,9 +36,16 @@ func SendTransactions(results []map[string]interface{}, targetURL string) error 
 		Jar: jar,
 	}
 
-	// Шаг 2: Оборачиваем результаты в нужную структуру
+	// Преобразуем results из строки JSON обратно в map[string]interface{}
+	var parsedResults map[string]interface{}
+	err = json.Unmarshal([]byte(results), &parsedResults)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal results: %w", err)
+	}
+
 	payload := map[string]interface{}{
-		"transactions": results,
+		"account_id": parsedResults["account_id"], // Извлекаем account_id
+		"operations": parsedResults["operations"], // Извлекаем operations
 	}
 
 	// Преобразуем payload в JSON
@@ -46,11 +54,11 @@ func SendTransactions(results []map[string]interface{}, targetURL string) error 
 		return fmt.Errorf("failed to marshal payload to JSON: %w", err)
 	}
 
+	// Форматируем JSON для красивого вывода
 	var prettyJSON bytes.Buffer
 	if err := json.Indent(&prettyJSON, jsonData, "", "  "); err != nil {
 		return fmt.Errorf("failed to format JSON: %w", err)
 	}
-	fmt.Println(string(prettyJSON.Bytes()))
 
 	// Создаем POST-запрос с правильным Content-Type
 	postReq, err := http.NewRequest("POST", finalUrl, bytes.NewBuffer(jsonData))
@@ -68,13 +76,20 @@ func SendTransactions(results []map[string]interface{}, targetURL string) error 
 	}
 	defer postResp.Body.Close()
 
+	// Читаем тело ответа для логирования или анализа ошибок
+	body, err := io.ReadAll(postResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	// Проверяем статус ответа
 	if postResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(postResp.Body)
 		return fmt.Errorf("POST request failed with status %d: %s", postResp.StatusCode, string(body))
 	}
 
-	fmt.Println("POST request sent successfully.")
+	// Выводим успешный результат
+	fmt.Printf("POST request sent successfully. Response: %s\n", string(body))
+
 	return nil
 }
 
@@ -105,25 +120,22 @@ func FindTransactions(ctx context.Context, cfg config.Config, account *models.Ac
 		return fmt.Errorf("failed to inject JS properties: %w", err)
 	}
 
-	// Переход на страницу истории
+	// Переход в лк банка
 	if err := chromedp.Run(chromeCtx,
 		chromedp.Navigate(loginURL),
-		chromedp.Sleep(RandomDuration(1, 3)),
-		chromedp.WaitVisible(`li[data-test-id='item'] a[href='/history/']`, chromedp.ByQuery),
-		chromedp.Evaluate(`document.querySelector("li[data-test-id='item'] a[href='/history/']").click()`, nil),
 		chromedp.Sleep(RandomDuration(1, 2)),
 	); err != nil {
 		return fmt.Errorf("failed to navigate to History tab: %w", err)
 	}
 
 	// Извлечение транзакций
-	results, err := extractTransactions(chromeCtx, int(account.ID))
+	result, err := scrapTransactions(chromeCtx, int(account.ID), *account.AccountNumber)
 	if err != nil {
 		return fmt.Errorf("failed to parse history: %w", err)
 	}
 
 	// Отправка транзакций
-	if err := SendTransactions(results, cfg.BasePythonApiUrl); err != nil {
+	if err := SendTransactions(result, cfg.BasePythonApiUrl); err != nil {
 		return fmt.Errorf("failed to send transactions: %w", err)
 	}
 
