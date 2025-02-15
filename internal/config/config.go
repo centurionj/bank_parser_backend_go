@@ -47,7 +47,7 @@ func LoadConfig() (*Config, error) {
 		GinMode:              os.Getenv("GIN_MODE"),
 		AuthTimeOutSecond:    180,
 		AuthOTPTimeOutSecond: 60,
-		ParserTimeOutSecond:  150,
+		ParserTimeOutSecond:  30,
 	}
 
 	return cfg, nil
