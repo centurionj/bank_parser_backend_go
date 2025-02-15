@@ -18,6 +18,5 @@ type AccountProperties struct {
 	CPU                 string
 	BatteryVolume       float64
 	IsCharging          bool
-	LocalIP             string
 	PublicIP            string
 }

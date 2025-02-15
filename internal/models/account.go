@@ -29,7 +29,6 @@ type Account struct {
 	Stop           *string `gorm:"type:varchar(5);default:null"`
 
 	// Network
-	LocalIP  *string `gorm:"type:varchar(25);default:null"`
 	PublicIP *string `gorm:"type:varchar(25);default:null"`
 
 	// Hardware

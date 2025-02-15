@@ -101,6 +101,8 @@ func getRandomDeviceProfile() schem.DeviceProfile {
 func createAccountProperties(account models.Account) schem.AccountProperties {
 	var props schem.AccountProperties
 
+	props.PublicIP = *account.PublicIP
+
 	if account.IsAuthenticated != true {
 		props.DeviceProfile = getRandomDeviceProfile()
 
@@ -123,8 +125,6 @@ func createAccountProperties(account models.Account) schem.AccountProperties {
 		charge := []bool{true, false}
 		props.IsCharging = charge[rand.Intn(len(charge))]
 		props.BatteryVolume = 0.5 + rand.Float64()/2
-		//props.LocalIP = ""
-		//props.PublicIP = "" // GetProxy()
 	} else {
 		props.DeviceProfile.UserAgent = *account.UserAgent
 		props.DeviceProfile.Platform = *account.Platform
@@ -146,9 +146,6 @@ func createAccountProperties(account models.Account) schem.AccountProperties {
 
 		props.IsCharging = *account.IsCharging
 		props.BatteryVolume = *account.BatteryVolume
-
-		//props.LocalIP = *account.LocalIP
-		//props.PublicIP = *account.PublicIP
 	}
 
 	return props
@@ -232,38 +229,27 @@ func injectCanvasAndWebGL(ctx context.Context, gpu string, cpu string) error {
 	return nil
 }
 
-func injectWebRTCProperties(ctx context.Context, localIP string, publicIP string) error {
-	jsScript := []string{
-		fmt.Sprintf(`
-		(() => {
-			const originalCreateOffer = RTCPeerConnection.prototype.createOffer;
-			RTCPeerConnection.prototype.createOffer = function (...args) {
-				return originalCreateOffer.apply(this, args).then(offer => {
-					offer.sdp = offer.sdp.replace(/a=candidate:.*\r\n/g, match => {
-						if (match.includes("typ host")) {
-							return match.replace(/[\d.]+ \d+ typ host/, "%s 9 typ host");
-						}
-						if (match.includes("typ srflx")) {
-							return match.replace(/[\d.]+ \d+ typ srflx/, "%s 9 typ srflx");
-						}
-						return match;
-					});
-					return offer;
-				});
-			};
-		})();
-		`, localIP, publicIP),
-	}
+func injectWebRTCProperties(ctx context.Context, publicIP string) error {
+	jsScript := fmt.Sprintf(`
+    (() => {
+        const originalCreateOffer = RTCPeerConnection.prototype.createOffer;
+        RTCPeerConnection.prototype.createOffer = function (...args) {
+            return originalCreateOffer.apply(this, args).then(offer => {
+                // Заменяем все локальные IP-адреса на publicIP
+                offer.sdp = offer.sdp.replace(/a=candidate:[^\n]+\s+[\d.]+\s+\d+\s+typ\s+(host|srflx)/g, (match, type) => {
+                    return match.replace(/[\d.]+\s+\d+\s+typ\s+(host|srflx)/, "%s 9 typ " + type);
+                });
+                return offer;
+            });
+        };
+    })();
+    `, publicIP)
 
-	// Выполнение JS-скриптов для WebRTC
-	for _, script := range jsScript {
-		log.Printf("Injecting webrtc script: %s", script)
-		if err := chromedp.Run(ctx, chromedp.Evaluate(script, nil)); err != nil {
-			log.Printf("Error injecting webrtc script: %v", err)
-			return fmt.Errorf("JS injection failed: %w", err)
-		}
+	// Выполнение JS-скрипта для WebRTC
+	if err := chromedp.Run(ctx, chromedp.Evaluate(jsScript, nil)); err != nil {
+		log.Printf("Error injecting webrtc script: %v", err)
+		return fmt.Errorf("JS injection failed: %w", err)
 	}
-
 	return nil
 }
 
@@ -395,9 +381,9 @@ func InjectJSProperties(ctx context.Context, account models.Account) (schem.Acco
 	if err := injectCanvasAndWebGL(ctx, props.GPU, props.CPU); err != nil {
 		return props, err
 	}
-	//if err := injectWebRTCProperties(ctx, props.localIP, props.publicIP); err != nil {
-	//	return err
-	//}
+	if err := injectWebRTCProperties(ctx, props.PublicIP); err != nil {
+		return props, err
+	}
 	if err := injectScreenAndAudioProperties(
 		ctx,
 		props.DeviceProfile,
@@ -434,9 +420,8 @@ func parseCookieString(cookieString string, cfg config.Config) ([]network.Cookie
 		expiresTime := cdp.TimeSinceEpoch(expiresAt)
 
 		cookies = append(cookies, network.CookieParam{
-			Name:  cookieParts[0],
-			Value: cookieParts[1],
-			// Эти значения нужно задавать вручную, если нет информации в строке:
+			Name:     cookieParts[0],
+			Value:    cookieParts[1],
 			Domain:   cfg.AlphaUrl,
 			Path:     "/",
 			HTTPOnly: false,
@@ -525,6 +510,7 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 		chromedp.Flag("metrics-recording-only", true),
 		chromedp.Flag("disable-background-timer-throttling", true),
 		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("proxy-server", *account.PublicIP),
 	)
 	if cfg.GinMode != "debug" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
@@ -534,18 +520,13 @@ func SetupChromeDriver(ctx context.Context, account models.Account, cfg config.C
 			chromedp.Flag("mute-audio", true),
 		)
 	}
+
 	if account.UserAgent != nil && *account.UserAgent != "" {
 		conf.ChromeFlags = append(conf.ChromeFlags,
 			chromedp.Flag("user-agent", *account.UserAgent),
 		)
 	}
-	if cfg.GinMode != "debug" {
-		if account.PublicIP != nil && *account.PublicIP != "" {
-			conf.ChromeFlags = append(conf.ChromeFlags,
-				chromedp.Flag("proxy-server", account.PublicIP),
-			)
-		}
-	}
+
 	if account.IsAuthenticated != true {
 		// Удаление сессии
 		if _, err := ClearSessionDir(int64(account.ID), true); err != nil {
