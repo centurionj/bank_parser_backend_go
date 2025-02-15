@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  django:
+    image: bank_parser_backend_python-web:latest
+    container_name: web
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - bank_parser_backend_python_app_network
+
+  parser:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: go_parser
+    restart: always
+    environment:
+      - API_URL=http://web:8000/api
+    networks:
+      - bank_parser_backend_python_app_network
+
+  db:
+    image: postgres:latest
+    container_name: db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    networks:
+      - bank_parser_backend_python_app_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+      - static_volume:/app/static
+      - media_volume:/app/media
+    depends_on:
+      - django
+    networks:
+      - bank_parser_backend_python_app_network
+
+networks:
+  bank_parser_backend_python_app_network:
+    external: true
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
